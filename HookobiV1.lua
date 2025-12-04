@@ -352,4 +352,12 @@ end
 if #LastPayload > 100 then
     print(">>> PAYLOAD GRANDE CAPTURADO. MOSTRANDO GUI DE COPIA Y COPIANDO AL PORTAPAPELES. <<<")
     ShowCopyGUI(LastPayload)
+else
+    -- MENSAJE DE DIAGNÓSTICO CLARO
+    print("\n--- DIAGNÓSTICO ---\n")
+    print("ATENCIÓN: No se detectó un payload ejecutable grande. Esto puede significar que:")
+    print("1. CÓDIGO NO PEGADO: El script ofuscado no fue pegado correctamente en la variable 'SCRIPT_IN_TEXT'.")
+    print("2. DETECCIÓN DE OFUSCADOR: El ofuscador (Luraph) es muy reciente, detectó nuestro Interceptor (los hooks) y terminó la ejecución.")
+    print("3. REVISA EL LOG: Revisa el archivo 'luraph_log_v3.txt' en tu carpeta workspace para ver si capturó alguna pieza de código pequeña.")
+    print("\n-------------------\n")
 end
