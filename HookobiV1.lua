@@ -1,6 +1,6 @@
 -- ============================================================================
 -- INTERCEPTOR LURAPH PARA ROBLOX (DELTA / FLUXUS / KRNL)
--- MEJORA CLAVE: Intercepta table.concat y muestra una GUI para copiar el resultado.
+-- Versión con GUI y copia automática al portapapeles.
 -- ============================================================================
 
 -- !!! IMPORTANTE: PEGA TODO EL CÓDIGO OFUSCADO AQUÍ PARA MÁXIMA FIABILIDAD !!!
@@ -191,7 +191,7 @@ VirtualEnv.string.char = function(...)
 end
 
 -- ============================================================================
--- 3. EJECUCIÓN
+-- 3. EJECUCIÓN DEL SCRIPT OBJETIVO
 -- ============================================================================
 
 local target_script = ""
@@ -200,7 +200,7 @@ local target_script = ""
 if #SCRIPT_IN_TEXT > 50 then
     Logger:log("Usando script PEADO EN EL CÓDIGO (SCRIPT_IN_TEXT)")
     target_script = SCRIPT_IN_TEXT
--- Opción 2: Intentar leer el archivo
+-- Opción 2: Intentar leer el archivo (Solo si el pegado está vacío)
 elseif isfile and isfile(INPUT_FILENAME) then
     Logger:log("Leyendo archivo desde workspace:", INPUT_FILENAME)
     target_script = readfile(INPUT_FILENAME)
@@ -229,7 +229,7 @@ else
     end
 end
 
--- Escaneo de variables residuales
+-- Escaneo de variables residuales (captura final de posibles payloads)
 Logger:log("--- Escaneando variables globales residuales ---")
 for k, v in pairs(VirtualEnv) do
     if not _G[k] and not (getgenv and getgenv()[k]) then
@@ -245,7 +245,7 @@ print(">>> PROCESO TERMINADO. REVISA TUS ARCHIVOS EN WORKSPACE <<<")
 
 
 -- ============================================================================
--- 4. GUI DE COPIA
+-- 4. FUNCIÓN Y ACTIVACIÓN DE LA GUI DE COPIA
 -- ============================================================================
 
 local function ShowCopyGUI(payload)
@@ -258,13 +258,16 @@ local function ShowCopyGUI(payload)
         return
     end
 
+    -- Obtener el contenedor principal de la GUI
     local PlayerGui = game.Players.LocalPlayer and game.Players.LocalPlayer:FindFirstChild("PlayerGui") or game.CoreGui
     if not PlayerGui then return end
 
+    -- Contenedor principal
     local MainFrame = Instance.new("ScreenGui")
     MainFrame.Name = "Luraph_CopyGUI"
     MainFrame.DisplayOrder = 999 
 
+    -- Marco de la ventana
     local Frame = Instance.new("Frame")
     Frame.Size = UDim2.new(0.5, 0, 0.5, 0)
     Frame.Position = UDim2.new(0.5, 0, 0.5, 0) -- Centrado
@@ -285,9 +288,9 @@ local function ShowCopyGUI(payload)
     Title.TextSize = 20
     Title.Parent = Frame
 
-    -- Área de texto para el Payload (solo visible para scripts pequeños, si no, es solo un indicador)
+    -- Área de texto para el Payload (muestra el código o un mensaje si es muy largo)
     local PayloadTextBox = Instance.new("TextBox")
-    PayloadTextBox.Text = (#payload < 1000) and payload or "Payload Capturado. Demasiado grande para mostrar. Usa el botón Copiar."
+    PayloadTextBox.Text = (#payload < 5000) and payload or "Payload Capturado. Demasiado grande para mostrar. ¡Usa el botón Copiar!"
     PayloadTextBox.PlaceholderText = "Payload copiado, pero no visible (demasiado largo)."
     PayloadTextBox.TextEditable = false
     PayloadTextBox.MultiLine = true
@@ -306,6 +309,8 @@ local function ShowCopyGUI(payload)
     CopyButton.Position = UDim2.new(0.5, 0, 0.9, 0)
     CopyButton.AnchorPoint = Vector2.new(0.5, 0.5)
     CopyButton.Parent = Frame
+    CopyButton.Font = Enum.Font.SourceSansBold
+    CopyButton.TextSize = 20
 
     -- Botón de Cerrar
     local CloseButton = Instance.new("TextButton")
