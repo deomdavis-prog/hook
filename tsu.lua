@@ -1,18 +1,20 @@
 -- ╔═══════════════════════════════════════════════════════════╗
--- ║           MENU TODO EN 1 - INTERACTIVE v2.0              ║
+-- ║           GUI TODO EN 1 - ELEGANT & MODERN v3.0          ║
 -- ║  Stats, Coins, Pets, GamePasses, Auto-Farm & More        ║
 -- ║              Optimizado para Delta Executor              ║
 -- ╚═══════════════════════════════════════════════════════════╝
 
-local player = game.Players.LocalPlayer
+local player = game:GetService("Players").LocalPlayer
 local playerName = player.Name
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
--- Referencias globales
+-- Referencias
 local leaderstats = player:WaitForChild("leaderstats")
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- ════════════════════════════════════════════════════════════
--- CONFIGURACIÓN GLOBAL
+-- CONFIGURACIÓN
 -- ════════════════════════════════════════════════════════════
 
 local CONFIG = {
@@ -26,59 +28,24 @@ local CONFIG = {
     AutoFarm = {
         Enabled = false,
         CollectCoins = true,
-        UpdateStats = true,
         Interval = 0.5
     },
     GamePasses = {
         InfinitePets = false,
         TripleSpeed = false
-    },
-    UI = {
-        ShowNotifications = true,
-        AutoShowMenu = true
     }
 }
 
 -- ════════════════════════════════════════════════════════════
--- UTILIDADES Y HELPERS
+-- FUNCIONES CORE
 -- ════════════════════════════════════════════════════════════
 
-local function PrintBanner(text)
-    local line = string.rep("═", 60)
-    print("\n╔" .. line .. "╗")
-    local spaces = 57 - #text
-    if spaces < 0 then spaces = 0 end
-    print("║  " .. text .. string.rep(" ", spaces) .. "║")
-    print("╚" .. line .. "╝\n")
-end
-
-local function PrintSuccess(text)
-    if CONFIG.UI.ShowNotifications then
-        print("✅ " .. text)
-    end
-end
-
-local function PrintError(text)
-    warn("❌ " .. text)
-end
-
-local function PrintInfo(text)
-    if CONFIG.UI.ShowNotifications then
-        print("ℹ️  " .. text)
-    end
-end
-
-local function PrintWarning(text)
-    warn("⚠️  " .. text)
-end
+local farmRunning = false
+local farmLoopCount = 0
 
 local function SafeCall(func, ...)
     local success, result = pcall(func, ...)
-    if not success then
-        PrintError("Error: " .. tostring(result))
-        return false, result
-    end
-    return true, result
+    return success, result or "Error desconocido"
 end
 
 local function FormatNumber(num)
@@ -93,584 +60,524 @@ local function FormatNumber(num)
     end
 end
 
--- ════════════════════════════════════════════════════════════
--- MÓDULO: STATS MODIFIER
--- ════════════════════════════════════════════════════════════
-
-local StatsModule = {}
-
-function StatsModule.ModifyCoins(amount)
-    return SafeCall(function()
+local function ModifyCoins(amount)
+    SafeCall(function()
         local coinsValue = leaderstats:FindFirstChild("💰 Coins")
         if coinsValue then
             coinsValue.Value = amount
-            PrintSuccess("Coins modificadas: " .. FormatNumber(amount))
-            return true
         end
-        PrintError("No se encontró el valor de Coins")
-        return false
     end)
 end
 
-function StatsModule.ModifyMoonCoins(amount)
-    return SafeCall(function()
+local function ModifyMoonCoins(amount)
+    SafeCall(function()
         local moonCoinsValue = leaderstats:FindFirstChild("🌑 Moon Coins")
         if moonCoinsValue then
             moonCoinsValue.Value = amount
-            PrintSuccess("Moon Coins modificadas: " .. FormatNumber(amount))
-            return true
         end
-        PrintError("No se encontró el valor de Moon Coins")
-        return false
     end)
 end
 
-function StatsModule.ModifyPetsCount(amount)
-    return SafeCall(function()
+local function ModifyPetsCount(amount)
+    SafeCall(function()
         local petsValue = leaderstats:FindFirstChild("🐾 Pets")
         if petsValue then
             petsValue.Value = amount
-            PrintSuccess("Cantidad de Pets modificada: " .. tostring(amount))
-            return true
         end
-        PrintError("No se encontró el valor de Pets")
-        return false
     end)
 end
 
-function StatsModule.ModifyPetStats(level, power)
-    return SafeCall(function()
-        local Stats = workspace.__REMOTES.Core["Get Other Stats"]:InvokeServer()
-        
-        if not Stats or not Stats[playerName] then
-            PrintError("No se pudieron obtener las stats del servidor")
-            return false
-        end
-        
-        if Stats[playerName]["Save"] and Stats[playerName]["Save"]["Pets"] then
-            local petCount = 0
-            for i, v in pairs(Stats[playerName]["Save"]["Pets"]) do
-                v.l = level
-                v.p = power
-                petCount = petCount + 1
-            end
-            
-            workspace.__REMOTES.Core["Set Stats"]:FireServer(Stats[playerName])
-            PrintSuccess(string.format("Stats de %d mascotas actualizadas (Nivel: %s, Poder: %s)", 
-                petCount, FormatNumber(level), FormatNumber(power)))
-            return true
-        end
-        
-        PrintError("No se encontraron mascotas para modificar")
-        return false
-    end)
-end
-
-function StatsModule.GetCurrentStats()
-    PrintBanner("STATS ACTUALES DEL JUGADOR")
-    
-    -- Leaderstats
-    print("📊 LEADERSTATS:")
-    local coinsValue = leaderstats:FindFirstChild("💰 Coins")
-    local moonCoinsValue = leaderstats:FindFirstChild("🌑 Moon Coins")
-    local petsValue = leaderstats:FindFirstChild("🐾 Pets")
-    
-    if coinsValue then 
-        print("  💰 Coins: " .. FormatNumber(coinsValue.Value) .. " (" .. tostring(coinsValue.Value) .. ")")
-    end
-    if moonCoinsValue then 
-        print("  🌑 Moon Coins: " .. FormatNumber(moonCoinsValue.Value) .. " (" .. tostring(moonCoinsValue.Value) .. ")")
-    end
-    if petsValue then 
-        print("  🐾 Pets: " .. tostring(petsValue.Value))
-    end
-    
-    -- Mascotas activas
-    SafeCall(function()
-        local petFolder = workspace:FindFirstChild("__DEBRIS")
-        if petFolder then
-            petFolder = petFolder:FindFirstChild("Pets")
-            if petFolder then
-                local playerPets = petFolder:FindFirstChild(playerName)
-                if playerPets then
-                    print("\n🐕 MASCOTAS ACTIVAS EN WORKSPACE:")
-                    local count = 0
-                    for _, pet in ipairs(playerPets:GetChildren()) do
-                        count = count + 1
-                        if count <= 10 then
-                            print(string.format("  %d. Pet ID: %s", count, pet.Name))
-                        end
-                    end
-                    if count > 10 then
-                        print(string.format("  ... y %d mascotas más", count - 10))
-                    end
-                    print(string.format("  Total: %d mascotas activas", count))
-                end
-            end
-        end
-    end)
-    
-    -- Stats del servidor
+local function ModifyPetStats(level, power)
     SafeCall(function()
         local Stats = workspace.__REMOTES.Core["Get Other Stats"]:InvokeServer()
         if Stats and Stats[playerName] and Stats[playerName]["Save"]["Pets"] then
-            print("\n📋 STATS DE MASCOTAS (Servidor):")
-            local count = 0
-            for i, pet in pairs(Stats[playerName]["Save"]["Pets"]) do
-                count = count + 1
-                if count <= 3 then
-                    print(string.format("  Mascota #%d - Nivel: %s | Poder: %s", 
-                        count, FormatNumber(pet.l or 0), FormatNumber(pet.p or 0)))
-                end
+            for i, v in pairs(Stats[playerName]["Save"]["Pets"]) do
+                v.l = level
+                v.p = power
             end
-            if count > 3 then
-                print(string.format("  ... y %d mascotas más", count - 3))
-            end
-            print(string.format("  Total: %d mascotas guardadas", count))
+            workspace.__REMOTES.Core["Set Stats"]:FireServer(Stats[playerName])
         end
     end)
-    
-    print("")
 end
 
-function StatsModule.ModifyAll()
-    PrintInfo("⚡ Aplicando modificaciones completas...")
-    local success = true
-    
-    if not StatsModule.ModifyCoins(CONFIG.Stats.Coins) then success = false end
-    wait(0.1)
-    if not StatsModule.ModifyMoonCoins(CONFIG.Stats.MoonCoins) then success = false end
-    wait(0.1)
-    if not StatsModule.ModifyPetsCount(CONFIG.Stats.PetsCount) then success = false end
-    wait(0.1)
-    if not StatsModule.ModifyPetStats(CONFIG.Stats.PetLevel, CONFIG.Stats.PetPower) then success = false end
-    
-    if success then
-        PrintSuccess("✨ Todas las stats modificadas correctamente")
-    else
-        PrintWarning("Algunas modificaciones fallaron")
-    end
-end
-
--- ════════════════════════════════════════════════════════════
--- MÓDULO: GAMEPASS SPOOFER
--- ════════════════════════════════════════════════════════════
-
-local GamePassModule = {}
-
-function GamePassModule.SpoofInfinitePets()
-    return SafeCall(function()
-        -- Método 1: Modificar variables locales
-        local variables = playerGui:FindFirstChild("Modules")
-        if variables then
-            variables = variables:FindFirstChild("(M) Variables [Client]")
-            if variables then
-                -- El módulo de variables está disponible
-                PrintSuccess("🎮 GamePass: Infinite Pets activado")
-                CONFIG.GamePasses.InfinitePets = true
-                return true
-            end
-        end
-        
-        -- Método 2: Modificar directamente en leaderstats
-        StatsModule.ModifyPetsCount(999)
-        PrintSuccess("🎮 GamePass: Infinite Pets activado (método alternativo)")
-        CONFIG.GamePasses.InfinitePets = true
-        return true
-    end)
-end
-
-function GamePassModule.SpoofTripleSpeed()
-    return SafeCall(function()
-        -- Activar el multiplicador de velocidad
-        PrintSuccess("🎮 GamePass: 3x Collection Speed activado")
-        CONFIG.GamePasses.TripleSpeed = true
-        
-        -- Reducir intervalo de auto-farm para simular velocidad 3x
-        if CONFIG.AutoFarm.Enabled then
-            CONFIG.AutoFarm.Interval = CONFIG.AutoFarm.Interval / 3
-            PrintInfo("Intervalo de Auto-Farm ajustado para 3x velocidad")
-        end
-        
-        return true
-    end)
-end
-
-function GamePassModule.UnlockAll()
-    PrintInfo("🔓 Desbloqueando todos los GamePasses...")
-    GamePassModule.SpoofInfinitePets()
-    wait(0.2)
-    GamePassModule.SpoofTripleSpeed()
-    PrintSuccess("✨ Todos los GamePasses desbloqueados")
-end
-
-function GamePassModule.GetStatus()
-    PrintBanner("ESTADO DE GAMEPASSES")
-    print("🎮 GAMEPASSES ACTIVOS:")
-    print("  • Infinite Pets: " .. (CONFIG.GamePasses.InfinitePets and "✅ ACTIVO" or "❌ INACTIVO"))
-    print("  • 3x Collection Speed: " .. (CONFIG.GamePasses.TripleSpeed and "✅ ACTIVO" or "❌ INACTIVO"))
-    print("")
-end
-
--- ════════════════════════════════════════════════════════════
--- MÓDULO: AUTO-FARM
--- ════════════════════════════════════════════════════════════
-
-local AutoFarmModule = {}
-local farmRunning = false
-local farmLoopCount = 0
-
-function AutoFarmModule.CollectCoins()
-    return SafeCall(function()
+local function CollectCoins()
+    SafeCall(function()
         local args = {"Get"}
         workspace:WaitForChild("__REMOTES"):WaitForChild("Game"):WaitForChild("Coins"):FireServer(unpack(args))
-        return true
     end)
 end
 
-function AutoFarmModule.UpdateStats()
-    return SafeCall(function()
-        workspace:WaitForChild("__REMOTES"):WaitForChild("Core"):WaitForChild("Get Other Stats"):InvokeServer()
-        return true
-    end)
-end
-
-function AutoFarmModule.Start()
-    if farmRunning then
-        PrintWarning("Auto-Farm ya está en ejecución")
-        return
-    end
-    
+local function StartAutoFarm()
+    if farmRunning then return end
     farmRunning = true
     farmLoopCount = 0
     CONFIG.AutoFarm.Enabled = true
-    PrintSuccess("🤖 Auto-Farm iniciado (Intervalo: " .. CONFIG.AutoFarm.Interval .. "s)")
     
     spawn(function()
         while farmRunning and CONFIG.AutoFarm.Enabled do
             farmLoopCount = farmLoopCount + 1
-            
-            -- Recolectar monedas
             if CONFIG.AutoFarm.CollectCoins then
-                AutoFarmModule.CollectCoins()
+                CollectCoins()
             end
-            
-            -- Actualizar stats cada 10 ciclos
-            if CONFIG.AutoFarm.UpdateStats and farmLoopCount % 10 == 0 then
-                AutoFarmModule.UpdateStats()
-            end
-            
-            -- Log cada 20 ciclos
-            if farmLoopCount % 20 == 0 then
-                PrintInfo(string.format("Auto-Farm: %d ciclos completados", farmLoopCount))
-            end
-            
             wait(CONFIG.AutoFarm.Interval)
         end
     end)
 end
 
-function AutoFarmModule.Stop()
+local function StopAutoFarm()
     farmRunning = false
     CONFIG.AutoFarm.Enabled = false
-    PrintSuccess("🛑 Auto-Farm detenido (Total de ciclos: " .. farmLoopCount .. ")")
-end
-
-function AutoFarmModule.SetInterval(seconds)
-    if seconds < 0.1 then
-        PrintWarning("El intervalo mínimo es 0.1 segundos")
-        seconds = 0.1
-    end
-    CONFIG.AutoFarm.Interval = seconds
-    PrintSuccess("⏱️  Intervalo de Auto-Farm cambiado a " .. tostring(seconds) .. " segundos")
-end
-
-function AutoFarmModule.GetStatus()
-    PrintBanner("ESTADO DEL AUTO-FARM")
-    print("🤖 AUTO-FARM:")
-    print("  Estado: " .. (farmRunning and "✅ ACTIVO" or "❌ INACTIVO"))
-    print("  Ciclos completados: " .. farmLoopCount)
-    print("  Intervalo: " .. CONFIG.AutoFarm.Interval .. "s")
-    print("  Recolectar Coins: " .. (CONFIG.AutoFarm.CollectCoins and "Sí" or "No"))
-    print("  Actualizar Stats: " .. (CONFIG.AutoFarm.UpdateStats and "Sí" or "No"))
-    print("")
 end
 
 -- ════════════════════════════════════════════════════════════
--- MÓDULO: PETS MANAGER
+-- CREAR GUI
 -- ════════════════════════════════════════════════════════════
 
-local PetsModule = {}
+-- Eliminar GUI existente si existe
+if playerGui:FindFirstChild("TodoEn1GUI") then
+    playerGui:FindFirstChild("TodoEn1GUI"):Destroy()
+end
 
-function PetsModule.GetActivePets()
-    local pets = {}
-    SafeCall(function()
-        local petFolder = workspace:FindFirstChild("__DEBRIS")
-        if petFolder then
-            petFolder = petFolder:FindFirstChild("Pets")
-            if petFolder then
-                local playerPets = petFolder:FindFirstChild(playerName)
-                if playerPets then
-                    for _, pet in ipairs(playerPets:GetChildren()) do
-                        table.insert(pets, pet.Name)
-                    end
-                end
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "TodoEn1GUI"
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.ResetOnSpawn = false
+
+-- Frame principal
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 550, 0, 650)
+MainFrame.Position = UDim2.new(0.5, -275, 0.5, -325)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+-- Sombra
+local Shadow = Instance.new("ImageLabel")
+Shadow.Name = "Shadow"
+Shadow.Size = UDim2.new(1, 30, 1, 30)
+Shadow.Position = UDim2.new(0, -15, 0, -15)
+Shadow.BackgroundTransparency = 1
+Shadow.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
+Shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+Shadow.ImageTransparency = 0.5
+Shadow.ScaleType = Enum.ScaleType.Slice
+Shadow.SliceCenter = Rect.new(10, 10, 118, 118)
+Shadow.ZIndex = 0
+Shadow.Parent = MainFrame
+
+-- Esquinas redondeadas
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 12)
+Corner.Parent = MainFrame
+
+-- Borde brillante
+local Border = Instance.new("UIStroke")
+Border.Color = Color3.fromRGB(100, 100, 255)
+Border.Thickness = 2
+Border.Transparency = 0.3
+Border.Parent = MainFrame
+
+-- Header
+local Header = Instance.new("Frame")
+Header.Name = "Header"
+Header.Size = UDim2.new(1, 0, 0, 60)
+Header.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 12)
+HeaderCorner.Parent = Header
+
+-- Título
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(1, -100, 1, 0)
+Title.Position = UDim2.new(0, 20, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "⚡ TODO EN 1 - SCRIPT HUB"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 20
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+local Subtitle = Instance.new("TextLabel")
+Subtitle.Name = "Subtitle"
+Subtitle.Size = UDim2.new(1, -100, 0, 20)
+Subtitle.Position = UDim2.new(0, 20, 0, 35)
+Subtitle.BackgroundTransparency = 1
+Subtitle.Text = "Player: " .. playerName
+Subtitle.TextColor3 = Color3.fromRGB(150, 150, 200)
+Subtitle.TextSize = 12
+Subtitle.Font = Enum.Font.Gotham
+Subtitle.TextXAlignment = Enum.TextXAlignment.Left
+Subtitle.Parent = Header
+
+-- Botón cerrar
+local CloseButton = Instance.new("TextButton")
+CloseButton.Name = "CloseButton"
+CloseButton.Size = UDim2.new(0, 40, 0, 40)
+CloseButton.Position = UDim2.new(1, -50, 0, 10)
+CloseButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+CloseButton.Text = "✕"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 20
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.Parent = Header
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 8)
+CloseCorner.Parent = CloseButton
+
+-- Contenedor con scroll
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Name = "ScrollFrame"
+ScrollFrame.Size = UDim2.new(1, -20, 1, -80)
+ScrollFrame.Position = UDim2.new(0, 10, 0, 70)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.BorderSizePixel = 0
+ScrollFrame.ScrollBarThickness = 6
+ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 255)
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 1400)
+ScrollFrame.Parent = MainFrame
+
+-- ════════════════════════════════════════════════════════════
+-- FUNCIÓN PARA CREAR SECCIONES
+-- ════════════════════════════════════════════════════════════
+
+local currentY = 10
+
+local function CreateSection(title, icon)
+    local Section = Instance.new("Frame")
+    Section.Name = title
+    Section.Size = UDim2.new(1, -10, 0, 40)
+    Section.Position = UDim2.new(0, 5, 0, currentY)
+    Section.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
+    Section.BorderSizePixel = 0
+    Section.Parent = ScrollFrame
+    
+    local SectionCorner = Instance.new("UICorner")
+    SectionCorner.CornerRadius = UDim.new(0, 8)
+    SectionCorner.Parent = Section
+    
+    local SectionTitle = Instance.new("TextLabel")
+    SectionTitle.Size = UDim2.new(1, -20, 1, 0)
+    SectionTitle.Position = UDim2.new(0, 15, 0, 0)
+    SectionTitle.BackgroundTransparency = 1
+    SectionTitle.Text = icon .. " " .. title
+    SectionTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    SectionTitle.TextSize = 16
+    SectionTitle.Font = Enum.Font.GothamBold
+    SectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+    SectionTitle.Parent = Section
+    
+    currentY = currentY + 50
+    
+    return Section
+end
+
+-- ════════════════════════════════════════════════════════════
+-- FUNCIÓN PARA CREAR BOTONES
+-- ════════════════════════════════════════════════════════════
+
+local function CreateButton(text, color, callback)
+    local Button = Instance.new("TextButton")
+    Button.Name = text
+    Button.Size = UDim2.new(1, -10, 0, 45)
+    Button.Position = UDim2.new(0, 5, 0, currentY)
+    Button.BackgroundColor3 = color
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 14
+    Button.Font = Enum.Font.GothamSemibold
+    Button.AutoButtonColor = false
+    Button.Parent = ScrollFrame
+    
+    local ButtonCorner = Instance.new("UICorner")
+    ButtonCorner.CornerRadius = UDim.new(0, 8)
+    ButtonCorner.Parent = Button
+    
+    local ButtonStroke = Instance.new("UIStroke")
+    ButtonStroke.Color = Color3.fromRGB(255, 255, 255)
+    ButtonStroke.Thickness = 0
+    ButtonStroke.Transparency = 0.7
+    ButtonStroke.Parent = Button
+    
+    -- Animación hover
+    Button.MouseEnter:Connect(function()
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(
+            math.min(color.R * 255 + 20, 255),
+            math.min(color.G * 255 + 20, 255),
+            math.min(color.B * 255 + 20, 255)
+        )}):Play()
+        TweenService:Create(ButtonStroke, TweenInfo.new(0.2), {Thickness = 2}):Play()
+    end)
+    
+    Button.MouseLeave:Connect(function()
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+        TweenService:Create(ButtonStroke, TweenInfo.new(0.2), {Thickness = 0}):Play()
+    end)
+    
+    -- Animación click
+    Button.MouseButton1Down:Connect(function()
+        TweenService:Create(Button, TweenInfo.new(0.1), {Size = UDim2.new(1, -15, 0, 43)}):Play()
+    end)
+    
+    Button.MouseButton1Up:Connect(function()
+        TweenService:Create(Button, TweenInfo.new(0.1), {Size = UDim2.new(1, -10, 0, 45)}):Play()
+    end)
+    
+    Button.MouseButton1Click:Connect(callback)
+    
+    currentY = currentY + 55
+    
+    return Button
+end
+
+-- ════════════════════════════════════════════════════════════
+-- FUNCIÓN PARA CREAR TOGGLE
+-- ════════════════════════════════════════════════════════════
+
+local function CreateToggle(text, defaultState, callback)
+    local ToggleFrame = Instance.new("Frame")
+    ToggleFrame.Name = text
+    ToggleFrame.Size = UDim2.new(1, -10, 0, 45)
+    ToggleFrame.Position = UDim2.new(0, 5, 0, currentY)
+    ToggleFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+    ToggleFrame.BorderSizePixel = 0
+    ToggleFrame.Parent = ScrollFrame
+    
+    local ToggleCorner = Instance.new("UICorner")
+    ToggleCorner.CornerRadius = UDim.new(0, 8)
+    ToggleCorner.Parent = ToggleFrame
+    
+    local ToggleLabel = Instance.new("TextLabel")
+    ToggleLabel.Size = UDim2.new(1, -70, 1, 0)
+    ToggleLabel.Position = UDim2.new(0, 15, 0, 0)
+    ToggleLabel.BackgroundTransparency = 1
+    ToggleLabel.Text = text
+    ToggleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleLabel.TextSize = 14
+    ToggleLabel.Font = Enum.Font.Gotham
+    ToggleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    ToggleLabel.Parent = ToggleFrame
+    
+    local ToggleButton = Instance.new("TextButton")
+    ToggleButton.Size = UDim2.new(0, 50, 0, 25)
+    ToggleButton.Position = UDim2.new(1, -60, 0.5, -12.5)
+    ToggleButton.BackgroundColor3 = defaultState and Color3.fromRGB(50, 200, 100) or Color3.fromRGB(100, 100, 100)
+    ToggleButton.Text = ""
+    ToggleButton.Parent = ToggleFrame
+    
+    local ToggleButtonCorner = Instance.new("UICorner")
+    ToggleButtonCorner.CornerRadius = UDim.new(1, 0)
+    ToggleButtonCorner.Parent = ToggleButton
+    
+    local ToggleCircle = Instance.new("Frame")
+    ToggleCircle.Size = UDim2.new(0, 21, 0, 21)
+    ToggleCircle.Position = defaultState and UDim2.new(1, -23, 0.5, -10.5) or UDim2.new(0, 2, 0.5, -10.5)
+    ToggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleCircle.BorderSizePixel = 0
+    ToggleCircle.Parent = ToggleButton
+    
+    local CircleCorner = Instance.new("UICorner")
+    CircleCorner.CornerRadius = UDim.new(1, 0)
+    CircleCorner.Parent = ToggleCircle
+    
+    local isToggled = defaultState
+    
+    ToggleButton.MouseButton1Click:Connect(function()
+        isToggled = not isToggled
+        
+        if isToggled then
+            TweenService:Create(ToggleButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(50, 200, 100)}):Play()
+            TweenService:Create(ToggleCircle, TweenInfo.new(0.2), {Position = UDim2.new(1, -23, 0.5, -10.5)}):Play()
+        else
+            TweenService:Create(ToggleButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(100, 100, 100)}):Play()
+            TweenService:Create(ToggleCircle, TweenInfo.new(0.2), {Position = UDim2.new(0, 2, 0.5, -10.5)}):Play()
+        end
+        
+        callback(isToggled)
+    end)
+    
+    currentY = currentY + 55
+    
+    return ToggleFrame
+end
+
+-- ════════════════════════════════════════════════════════════
+-- FUNCIÓN PARA STATUS DISPLAY
+-- ════════════════════════════════════════════════════════════
+
+local function CreateStatusDisplay()
+    local StatusFrame = Instance.new("Frame")
+    StatusFrame.Name = "StatusDisplay"
+    StatusFrame.Size = UDim2.new(1, -10, 0, 80)
+    StatusFrame.Position = UDim2.new(0, 5, 0, currentY)
+    StatusFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+    StatusFrame.BorderSizePixel = 0
+    StatusFrame.Parent = ScrollFrame
+    
+    local StatusCorner = Instance.new("UICorner")
+    StatusCorner.CornerRadius = UDim.new(0, 8)
+    StatusCorner.Parent = StatusFrame
+    
+    local StatusText = Instance.new("TextLabel")
+    StatusText.Name = "StatusText"
+    StatusText.Size = UDim2.new(1, -20, 1, -10)
+    StatusText.Position = UDim2.new(0, 10, 0, 5)
+    StatusText.BackgroundTransparency = 1
+    StatusText.Text = "Coins: Cargando...\nMoon Coins: Cargando...\nPets: Cargando..."
+    StatusText.TextColor3 = Color3.fromRGB(200, 200, 255)
+    StatusText.TextSize = 13
+    StatusText.Font = Enum.Font.GothamMedium
+    StatusText.TextXAlignment = Enum.TextXAlignment.Left
+    StatusText.TextYAlignment = Enum.TextYAlignment.Top
+    StatusText.Parent = StatusFrame
+    
+    currentY = currentY + 90
+    
+    -- Actualizar stats cada segundo
+    spawn(function()
+        while true do
+            local coinsValue = leaderstats:FindFirstChild("💰 Coins")
+            local moonCoinsValue = leaderstats:FindFirstChild("🌑 Moon Coins")
+            local petsValue = leaderstats:FindFirstChild("🐾 Pets")
+            
+            local text = ""
+            if coinsValue then
+                text = text .. "💰 Coins: " .. FormatNumber(coinsValue.Value) .. "\n"
             end
+            if moonCoinsValue then
+                text = text .. "🌑 Moon Coins: " .. FormatNumber(moonCoinsValue.Value) .. "\n"
+            end
+            if petsValue then
+                text = text .. "🐾 Pets: " .. tostring(petsValue.Value)
+            end
+            
+            StatusText.Text = text
+            wait(1)
         end
     end)
-    return pets
+    
+    return StatusFrame
 end
 
-function PetsModule.ShowActivePets()
-    PrintBanner("MASCOTAS ACTIVAS")
-    local pets = PetsModule.GetActivePets()
-    if #pets > 0 then
-        print("🐕 Mascotas detectadas en workspace:")
-        for i, petId in ipairs(pets) do
-            if i <= 15 then
-                print(string.format("  %d. Pet ID: %s", i, petId))
-            end
-        end
-        if #pets > 15 then
-            print(string.format("  ... y %d mascotas más", #pets - 15))
-        end
-        print(string.format("\n📊 Total: %d mascotas activas", #pets))
+-- ════════════════════════════════════════════════════════════
+-- CONSTRUIR INTERFAZ
+-- ════════════════════════════════════════════════════════════
+
+-- Status Display
+CreateStatusDisplay()
+
+-- STATS MANAGER
+CreateSection("STATS MANAGER", "📊")
+
+CreateButton("💰 Max Coins", Color3.fromRGB(255, 200, 50), function()
+    ModifyCoins(CONFIG.Stats.Coins)
+end)
+
+CreateButton("🌑 Max Moon Coins", Color3.fromRGB(100, 100, 200), function()
+    ModifyMoonCoins(CONFIG.Stats.MoonCoins)
+end)
+
+CreateButton("🐾 Max Pets Count", Color3.fromRGB(150, 100, 200), function()
+    ModifyPetsCount(CONFIG.Stats.PetsCount)
+end)
+
+CreateButton("⭐ Max Pet Stats", Color3.fromRGB(255, 150, 50), function()
+    ModifyPetStats(CONFIG.Stats.PetLevel, CONFIG.Stats.PetPower)
+end)
+
+CreateButton("⚡ MODIFICAR TODO", Color3.fromRGB(50, 200, 100), function()
+    ModifyCoins(CONFIG.Stats.Coins)
+    wait(0.1)
+    ModifyMoonCoins(CONFIG.Stats.MoonCoins)
+    wait(0.1)
+    ModifyPetsCount(CONFIG.Stats.PetsCount)
+    wait(0.1)
+    ModifyPetStats(CONFIG.Stats.PetLevel, CONFIG.Stats.PetPower)
+end)
+
+-- GAMEPASSES
+CreateSection("GAMEPASSES", "🎮")
+
+CreateButton("♾️ Infinite Pets", Color3.fromRGB(100, 150, 255), function()
+    ModifyPetsCount(999)
+    CONFIG.GamePasses.InfinitePets = true
+end)
+
+CreateButton("⚡ 3x Speed", Color3.fromRGB(255, 100, 100), function()
+    CONFIG.GamePasses.TripleSpeed = true
+    CONFIG.AutoFarm.Interval = 0.16
+end)
+
+CreateButton("🔓 Unlock All", Color3.fromRGB(200, 100, 255), function()
+    ModifyPetsCount(999)
+    CONFIG.GamePasses.InfinitePets = true
+    CONFIG.GamePasses.TripleSpeed = true
+    CONFIG.AutoFarm.Interval = 0.16
+end)
+
+-- AUTO-FARM
+CreateSection("AUTO-FARM", "🤖")
+
+CreateToggle("Auto Collect Coins", false, function(state)
+    if state then
+        StartAutoFarm()
     else
-        PrintInfo("No hay mascotas activas en este momento")
+        StopAutoFarm()
     end
-    print("")
-end
+end)
 
-function PetsModule.CountServerPets()
-    local count = 0
-    SafeCall(function()
-        local Stats = workspace.__REMOTES.Core["Get Other Stats"]:InvokeServer()
-        if Stats and Stats[playerName] and Stats[playerName]["Save"]["Pets"] then
-            for _ in pairs(Stats[playerName]["Save"]["Pets"]) do
-                count = count + 1
-            end
-        end
-    end)
-    return count
-end
+CreateButton("▶️ Start Farm", Color3.fromRGB(50, 200, 100), function()
+    StartAutoFarm()
+end)
+
+CreateButton("⏸️ Stop Farm", Color3.fromRGB(220, 50, 50), function()
+    StopAutoFarm()
+end)
 
 -- ════════════════════════════════════════════════════════════
--- SISTEMA DE MENÚ INTERACTIVO
+-- BOTÓN CERRAR Y TOGGLE
 -- ════════════════════════════════════════════════════════════
 
-local Menu = {}
+CloseButton.MouseButton1Click:Connect(function()
+    MainFrame.Visible = not MainFrame.Visible
+end)
 
-function Menu.ShowMain()
-    print("\n")
-    print("╔═══════════════════════════════════════════════════════════╗")
-    print("║                    MENU PRINCIPAL                         ║")
-    print("╠═══════════════════════════════════════════════════════════╣")
-    print("║                                                           ║")
-    print("║  📊 STATS MANAGER                                         ║")
-    print("║    [1] Modificar Coins                                    ║")
-    print("║    [2] Modificar Moon Coins                               ║")
-    print("║    [3] Modificar Cantidad de Pets                         ║")
-    print("║    [4] Modificar Stats de Pets (Nivel/Poder)              ║")
-    print("║    [5] ⚡ MODIFICAR TODO ⚡                               ║")
-    print("║    [6] Ver Stats Actuales                                 ║")
-    print("║                                                           ║")
-    print("║  🎮 GAMEPASSES                                            ║")
-    print("║    [7] Activar Infinite Pets                              ║")
-    print("║    [8] Activar 3x Collection Speed                        ║")
-    print("║    [9] 🔓 Desbloquear TODOS los GamePasses               ║")
-    print("║   [10] Ver Estado de GamePasses                           ║")
-    print("║                                                           ║")
-    print("║  🤖 AUTO-FARM                                             ║")
-    print("║   [11] ▶️  Iniciar Auto-Farm                              ║")
-    print("║   [12] ⏸️  Detener Auto-Farm                              ║")
-    print("║   [13] ⏱️  Configurar Intervalo                           ║")
-    print("║   [14] 📊 Ver Estado del Auto-Farm                        ║")
-    print("║                                                           ║")
-    print("║  🐾 PETS MANAGER                                          ║")
-    print("║   [15] Ver Mascotas Activas                               ║")
-    print("║   [16] Contar Mascotas Totales                            ║")
-    print("║                                                           ║")
-    print("║  ⚙️  CONFIGURACIÓN & UTILIDADES                           ║")
-    print("║   [17] Ver Configuración Actual                           ║")
-    print("║   [18] Toggle Notificaciones                              ║")
-    print("║   [19] Ayuda & Comandos                                   ║")
-    print("║                                                           ║")
-    print("║   [0] Salir del Menú                                      ║")
-    print("║                                                           ║")
-    print("╚═══════════════════════════════════════════════════════════╝")
-    print("\n💡 TIP: Puedes usar comandos directos (ej: ModifyAll())")
-    print("   Escribe 'Help()' para ver todos los comandos\n")
-end
-
-function Menu.ShowConfig()
-    PrintBanner("CONFIGURACIÓN ACTUAL")
-    print("📊 STATS POR DEFECTO:")
-    print("  Coins: " .. FormatNumber(CONFIG.Stats.Coins))
-    print("  Moon Coins: " .. FormatNumber(CONFIG.Stats.MoonCoins))
-    print("  Pets Count: " .. tostring(CONFIG.Stats.PetsCount))
-    print("  Pet Level: " .. FormatNumber(CONFIG.Stats.PetLevel))
-    print("  Pet Power: " .. FormatNumber(CONFIG.Stats.PetPower))
-    print("\n🤖 AUTO-FARM:")
-    print("  Estado: " .. (CONFIG.AutoFarm.Enabled and "Activo" or "Inactivo"))
-    print("  Intervalo: " .. tostring(CONFIG.AutoFarm.Interval) .. "s")
-    print("  Recolectar Coins: " .. (CONFIG.AutoFarm.CollectCoins and "Sí" or "No"))
-    print("  Actualizar Stats: " .. (CONFIG.AutoFarm.UpdateStats and "Sí" or "No"))
-    print("\n🎮 GAMEPASSES:")
-    print("  Infinite Pets: " .. (CONFIG.GamePasses.InfinitePets and "Activo" or "Inactivo"))
-    print("  Triple Speed: " .. (CONFIG.GamePasses.TripleSpeed and "Activo" or "Inactivo"))
-    print("\n⚙️  INTERFAZ:")
-    print("  Notificaciones: " .. (CONFIG.UI.ShowNotifications and "Activadas" or "Desactivadas"))
-    print("")
-end
-
-function Menu.ShowHelp()
-    PrintBanner("AYUDA Y COMANDOS RÁPIDOS")
-    print("📝 COMANDOS DIRECTOS:\n")
-    print("💰 STATS:")
-    print("  ModifyCoins(cantidad)")
-    print("  ModifyMoonCoins(cantidad)")
-    print("  ModifyPets(cantidad)")
-    print("  ModifyPetStats(nivel, poder)")
-    print("  ModifyAll()")
-    print("  GetStats()\n")
-    print("🎮 GAMEPASSES:")
-    print("  UnlockGamePasses()")
-    print("  GamePassStatus()\n")
-    print("🤖 AUTO-FARM:")
-    print("  StartFarm()")
-    print("  StopFarm()")
-    print("  SetInterval(segundos)")
-    print("  FarmStatus()\n")
-    print("🐾 PETS:")
-    print("  ShowPets()")
-    print("  CountPets()\n")
-    print("⚙️  UTILIDADES:")
-    print("  Menu() - Mostrar menú principal")
-    print("  Config() - Ver configuración")
-    print("  Help() - Esta ayuda")
-    print("  ToggleNotifications() - Activar/Desactivar notificaciones\n")
-    print("💡 EJEMPLO DE USO:")
-    print("  ModifyAll() -- Modifica todas las stats")
-    print("  StartFarm() -- Inicia el auto-farm")
-    print("  UnlockGamePasses() -- Desbloquea gamepasses\n")
-end
-
--- ════════════════════════════════════════════════════════════
--- COMANDOS GLOBALES (Para uso rápido)
--- ════════════════════════════════════════════════════════════
-
-_G.ModifyCoins = function(amount) 
-    StatsModule.ModifyCoins(amount or CONFIG.Stats.Coins) 
-end
-
-_G.ModifyMoonCoins = function(amount) 
-    StatsModule.ModifyMoonCoins(amount or CONFIG.Stats.MoonCoins) 
-end
-
-_G.ModifyPets = function(count) 
-    StatsModule.ModifyPetsCount(count or CONFIG.Stats.PetsCount) 
-end
-
-_G.ModifyPetStats = function(level, power) 
-    StatsModule.ModifyPetStats(
-        level or CONFIG.Stats.PetLevel, 
-        power or CONFIG.Stats.PetPower
-    ) 
-end
-
-_G.ModifyAll = StatsModule.ModifyAll
-_G.GetStats = StatsModule.GetCurrentStats
-
-_G.UnlockGamePasses = GamePassModule.UnlockAll
-_G.GamePassStatus = GamePassModule.GetStatus
-
-_G.StartFarm = AutoFarmModule.Start
-_G.StopFarm = AutoFarmModule.Stop
-_G.SetInterval = AutoFarmModule.SetInterval
-_G.FarmStatus = AutoFarmModule.GetStatus
-
-_G.ShowPets = PetsModule.ShowActivePets
-_G.CountPets = function()
-    local count = PetsModule.CountServerPets()
-    print("📊 Total de mascotas guardadas: " .. count)
-end
-
-_G.Menu = Menu.ShowMain
-_G.Config = Menu.ShowConfig
-_G.Help = Menu.ShowHelp
-
-_G.ToggleNotifications = function()
-    CONFIG.UI.ShowNotifications = not CONFIG.UI.ShowNotifications
-    print("🔔 Notificaciones: " .. (CONFIG.UI.ShowNotifications and "ACTIVADAS" or "DESACTIVADAS"))
-end
-
--- Acceso directo a la configuración
-_G.CONFIG = CONFIG
-
--- ════════════════════════════════════════════════════════════
--- INICIALIZACIÓN Y BIENVENIDA
--- ════════════════════════════════════════════════════════════
-
-local function Initialize()
-    print("\n\n")
-    print("╔═══════════════════════════════════════════════════════════╗")
-    print("║                                                           ║")
-    print("║            ⚡ SCRIPT TODO EN 1 v2.0 ⚡                    ║")
-    print("║                                                           ║")
-    print("║          Cargado exitosamente para Delta                 ║")
-    print("║                                                           ║")
-    print("╚═══════════════════════════════════════════════════════════╝\n")
-    
-    PrintSuccess("Script inicializado correctamente")
-    PrintInfo("Jugador: " .. playerName)
-    
-    -- Verificar componentes
-    print("\n🔍 Verificando componentes del juego...")
-    local componentsOk = true
-    
-    if workspace:FindFirstChild("__REMOTES") then
-        PrintSuccess("Remotes encontrados")
-    else
-        PrintError("No se encontraron remotes")
-        componentsOk = false
+-- Toggle con tecla (Right Control)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.RightControl then
+        MainFrame.Visible = not MainFrame.Visible
     end
-    
-    if leaderstats:FindFirstChild("💰 Coins") then
-        PrintSuccess("Leaderstats encontrados")
-    else
-        PrintWarning("Leaderstats no detectados completamente")
-    end
-    
-    if componentsOk then
-        PrintSuccess("✨ Todos los componentes verificados\n")
-    else
-        PrintWarning("⚠️  Algunos componentes no están disponibles\n")
-    end
-    
-    wait(0.5)
-    
-    -- Mostrar menú si está configurado
-    if CONFIG.UI.AutoShowMenu then
-        Menu.ShowMain()
-    else
-        print("📝 Escribe 'Menu()' para ver el menú principal")
-        print("📝 Escribe 'Help()' para ver todos los comandos\n")
-    end
+end)
+
+-- ════════════════════════════════════════════════════════════
+-- ANIMACIÓN DE ENTRADA
+-- ════════════════════════════════════════════════════════════
+
+MainFrame.Size = UDim2.new(0, 0, 0, 0)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+ScreenGui.Parent = playerGui
+
+TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 550, 0, 650),
+    Position = UDim2.new(0.5, -275, 0.5, -325)
+}):Play()
+
+-- ════════════════════════════════════════════════════════════
+-- COMANDOS GLOBALES
+-- ════════════════════════════════════════════════════════════
+
+_G.ToggleGUI = function()
+    MainFrame.Visible = not MainFrame.Visible
 end
 
--- Ejecutar inicialización
-Initialize()
-
--- ════════════════════════════════════════════════════════════
--- RETURN MODULES (Para uso programático)
--- ════════════════════════════════════════════════════════════
-
-return {
-    Stats = StatsModule,
-    GamePass = GamePassModule,
-    AutoFarm = AutoFarmModule,
-    Pets = PetsModule,
-    Menu = Menu,
-    Config = CONFIG,
-    Version = "2.0"
-}
+print("✅ GUI Cargada - Presiona Right Control para abrir/cerrar")
+print("📝 Comando: ToggleGUI() para toggle manual")
