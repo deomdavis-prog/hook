@@ -1,49 +1,68 @@
 --[[
-    PET SIMULATOR! ALL-IN-ONE MENU
-    Basado en el análisis de "All_info.txt"
-    Generado por Gemini
+    PET SIMULATOR! - SCRIPT ACTUALIZADO (RAYFIELD)
+    Solución al error HTTP 404
 ]]
 
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
-local Window = OrionLib:MakeWindow({Name = "Pet Simulator! | Hub Definitivo", HidePremium = false, SaveConfig = true, ConfigFolder = "PetSimConfig"})
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- // VARIABLES Y REFERENCIAS (Basadas en tu Dump) //
+local Window = Rayfield:CreateWindow({
+    Name = "Pet Simulator! | Hub Basado en Dump",
+    LoadingTitle = "Cargando Scripts...",
+    LoadingSubtitle = "by Gemini",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "PetSimHub",
+        FileName = "HubConfig"
+    },
+    Discord = {
+        Enabled = false,
+        Invite = "noinvitelink",
+        RememberJoins = true 
+    },
+    KeySystem = false, 
+})
+
+-- // VARIABLES Y REFERENCIAS (Basadas en tu archivo All_info.txt) //
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RS = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
--- Intentamos localizar la carpeta de Remotes basándonos en tu archivo
+-- Intentamos localizar la carpeta de Remotes
 local Remotes = RS:WaitForChild("Game"):WaitForChild("Remotes")
 local CoinsRemote = Remotes:WaitForChild("Coins")
 local EggRemote = Remotes:WaitForChild("Open Egg")
 local InventoryRemote = Remotes:WaitForChild("Inventory")
-local RainbowRemote = Remotes:WaitForChild("RainbowPets")
+local HallowRemote = Remotes:FindFirstChild("Halloween") -- Detectado en el dump a veces
 
 -- Variables de Control
 _G.AutoCollect = false
 _G.AutoFarm = false
 _G.AutoHatch = false
-_G.SelectedEgg = "Tier 1 Egg" -- Valor por defecto
+_G.SelectedEgg = "Tier 1 Egg"
 _G.TripleHatch = false
 
--- // FUNCIONES AUXILIARES //
+-- // NOTIFICACIÓN DE CARGA //
+Rayfield:Notify({
+    Title = "Script Cargado",
+    Content = "Referencias remotas conectadas correctamente.",
+    Duration = 5,
+    Image = 4483362458,
+})
 
--- Función para recoger monedas (Simula el toque)
+-- // LÓGICA INTERNA //
+
 function CollectCoins()
     spawn(function()
         while _G.AutoCollect do
             pcall(function()
-                -- Argumento "Get" detectado en tu script "Coins"
                 CoinsRemote:FireServer("Get") 
             end)
-            task.wait(0.1) -- Velocidad rápida pero segura
+            task.wait(0.1)
         end
     end)
 end
 
--- Función para Farmear Monedas en el mapa (Auto Mining)
 function FarmNearest()
     spawn(function()
         while _G.AutoFarm do
@@ -52,22 +71,17 @@ function FarmNearest()
                 for _, coin in pairs(coinContainer:GetChildren()) do
                     if not _G.AutoFarm then break end
                     if coin:IsA("BasePart") or coin:IsA("Model") then
-                        -- Simular estar cerca y minar
                         if (LocalPlayer.Character.HumanoidRootPart.Position - coin.Position).Magnitude < 100 then
-                            -- Nota: Algunos juegos usan "Mine" o "Damage", basándome en tu dump usamos la lógica de interacción
-                            -- Si el dump original tenía un módulo "Mining", aquí iría la llamada específica.
-                            -- Por defecto spameamos el remote de recolección cerca de la moneda:
                             CoinsRemote:FireServer("Get", coin) 
                         end
                     end
                 end
             end)
-            task.wait(0.2)
+            task.wait(0.25)
         end
     end)
 end
 
--- Función para Abrir Huevos
 function HatchEgg()
     spawn(function()
         while _G.AutoHatch do
@@ -78,132 +92,119 @@ function HatchEgg()
                 }
                 EggRemote:InvokeServer(unpack(args))
             end)
-            task.wait(0.1) -- Velocidad de apertura
+            task.wait(0.1)
         end
     end)
 end
 
--- // INTERFAZ (GUI) //
+-- // CREACIÓN DE PESTAÑAS //
 
--- Pestaña 1: Farm (Monedas)
-local FarmTab = Window:MakeTab({Name = "Auto Farm", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+local TabFarm = Window:CreateTab("Auto Farm", 4483362458) -- Icono genérico
+local TabEggs = Window:CreateTab("Huevos", 4483362458)
+local TabPet = Window:CreateTab("Mascotas", 4483362458)
+local TabLocal = Window:CreateTab("Jugador", 4483362458)
 
-FarmTab:AddSection({Name = "Recolección de Monedas"})
+-- // SECCIÓN FARM //
 
-FarmTab:AddToggle({
+TabFarm:CreateSection("Monedas")
+
+TabFarm:CreateToggle({
     Name = "Auto Collect (Global)",
-    Default = false,
+    CurrentValue = false,
+    Flag = "ToggleCollect", 
     Callback = function(Value)
         _G.AutoCollect = Value
         if Value then CollectCoins() end
-    end    
+    end,
 })
 
-FarmTab:AddToggle({
+TabFarm:CreateToggle({
     Name = "Auto Mine (Cercanos)",
-    Default = false,
+    CurrentValue = false,
+    Flag = "ToggleMine", 
     Callback = function(Value)
         _G.AutoFarm = Value
         if Value then FarmNearest() end
-    end    
+    end,
 })
 
--- Pestaña 2: Huevos (Eggs)
-local EggTab = Window:MakeTab({Name = "Auto Hatch", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+-- // SECCIÓN HUEVOS //
 
-EggTab:AddSection({Name = "Configuración de Huevo"})
+TabEggs:CreateSection("Selección")
 
--- Lista de huevos basada en nombres comunes del juego (Puedes editar esto si los nombres son diferentes)
 local EggList = {
-    "Tier 1 Egg", "Tier 2 Egg", "Tier 3 Egg", "Tier 4 Egg", 
+    "Tier 1 Egg", "Tier 2 Egg", "Tier 3 Egg", "Tier 4 Egg", "Tier 5 Egg",
     "Spotted Egg", "Snake Egg", "Cursed Hallow Egg", "Christmas Egg"
 }
 
-EggTab:AddDropdown({
-    Name = "Seleccionar Huevo",
-    Default = "Tier 1 Egg",
+TabEggs:CreateDropdown({
+    Name = "Elegir Huevo",
     Options = EggList,
-    Callback = function(Value)
-        _G.SelectedEgg = Value
-    end    
+    CurrentOption = "Tier 1 Egg",
+    MultipleOptions = false,
+    Flag = "EggDropdown",
+    Callback = function(Option)
+        _G.SelectedEgg = Option[1]
+    end,
 })
 
-EggTab:AddToggle({
+TabEggs:CreateToggle({
     Name = "Modo Triple (Gamepass)",
-    Default = false,
+    CurrentValue = false,
+    Flag = "ToggleTriple", 
     Callback = function(Value)
         _G.TripleHatch = Value
-    end    
+    end,
 })
 
-EggTab:AddToggle({
-    Name = "Activar Auto Hatch",
-    Default = false,
+TabEggs:CreateToggle({
+    Name = "ACTIVAR Auto Hatch",
+    CurrentValue = false,
+    Flag = "ToggleHatch", 
     Callback = function(Value)
         _G.AutoHatch = Value
         if Value then HatchEgg() end
-    end    
+    end,
 })
 
--- Pestaña 3: Mascotas (Pets)
-local PetTab = Window:MakeTab({Name = "Gestión Mascotas", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+-- // SECCIÓN MASCOTAS //
 
-PetTab:AddButton({
-    Name = "Equipar Mejores Mascotas",
+TabPet:CreateButton({
+    Name = "Equipar Mejor Equipo",
     Callback = function()
-        -- Llama al servidor para equipar lo mejor (basado en Inventory remote)
         pcall(function()
-            Remotes.Hats:InvokeServer("EquipBest") -- Inferencia común, si falla, usar loop manual
+            Remotes.Inventory:InvokeServer("EquipBest") 
+            -- Alternativa si el nombre del comando es distinto en remotes:
+            Remotes.Hats:InvokeServer("EquipBest")
         end)
-    end    
+        Rayfield:Notify({Title = "Comando Enviado", Content = "Intentando equipar mejores mascotas.", Duration = 3})
+    end,
 })
 
-PetTab:AddButton({
-    Name = "Crear Rainbow (Todo el Inventario)",
-    Callback = function()
-        -- Escanea inventario y trata de convertir (Requiere lógica compleja de IDs, esto es un intento genérico)
-        OrionLib:MakeNotification({
-            Name = "Atención",
-            Content = "Intentando fusionar mascotas disponibles...",
-            Image = "rbxassetid://4483345998",
-            Time = 5
-        })
-        -- Aquí iría un bucle for loop a través de InventoryRemote:InvokeServer("Get") si tuviéramos acceso a leer la tabla de retorno
-    end    
-})
+-- // SECCIÓN JUGADOR //
 
--- Pestaña 4: Jugador (Misc)
-local PlayerTab = Window:MakeTab({Name = "Jugador", Icon = "rbxassetid://4483345998", PremiumOnly = false})
-
-PlayerTab:AddSlider({
+TabLocal:CreateSlider({
     Name = "Velocidad (WalkSpeed)",
-    Min = 16,
-    Max = 200,
-    Default = 16,
-    Color = Color3.fromRGB(255,255,255),
+    Range = {16, 300},
     Increment = 1,
-    ValueName = "WS",
+    Suffix = "Speed",
+    CurrentValue = 16,
+    Flag = "SliderSpeed", 
     Callback = function(Value)
-        LocalPlayer.Character.Humanoid.WalkSpeed = Value
-    end    
-})
-
-PlayerTab:AddButton({
-    Name = "Canjear Todos los Códigos",
-    Callback = function()
-        local codes = {"Release", "Pet", "Coins", "Free"} -- Añadir códigos reales aquí
-        for _, code in pairs(codes) do
-            Remotes.Twitter:InvokeServer(code)
-            wait(1)
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = Value
         end
-    end    
+    end,
 })
 
--- Anti-AFK (Para que no te saque el juego)
-local VirtualUser = game:GetService("VirtualUser")
-LocalPlayer.Idled:connect(function()
-    VirtualUser:CaptureController()
-    VirtualUser:ClickButton2(Vector2.new())
-end)
-
-OrionLib:Init()
+TabLocal:CreateButton({
+    Name = "Anti-AFK (Evitar Kick)",
+    Callback = function()
+        local VirtualUser = game:GetService("VirtualUser")
+        LocalPlayer.Idled:connect(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new())
+        end)
+        Rayfield:Notify({Title = "Anti-AFK", Content = "Activado correctamente.", Duration = 3})
+    end,
+})
