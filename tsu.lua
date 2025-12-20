@@ -1,823 +1,645 @@
---// Loaded Check
-if AirHubV2Loaded or AirHubV2Loading or AirHub then return end
-getgenv().AirHubV2Loading = true
+-- ========================================
+-- SCRIPT DUMPER OPTIMIZADO v2.0
+-- Mejoras: Performance, Memory Management, Error Handling
+-- ========================================
 
---// Cache (Optimizado)
-local game = game
-local loadstring, typeof, select, next, pcall, type = loadstring, typeof, select, next, pcall, type
-local tablefind, tablesort, tableinsert = table.find, table.sort, table.insert
-local mathfloor = math.floor
-local stringgsub, stringfind = string.gsub, string.find
-local wait, delay, spawn = task.wait, task.delay, task.spawn
-local osdate = os.date
+local s = {
+	decompile = true,
+	dump_debug = false,
+	detailed_info = false,
+	threads = 5,
+	timeout = 5,
+	delay = 0.05,
+	include_nil = false,
+	replace_username = true,
+	disable_render = true,
+	batch_size = 50, -- Procesar scripts en lotes para mejor memory management
+}
 
---// Pre-cache constantes
-local FONTS = {"UI", "System", "Plex", "Monospace"}
-local TRACER_POSITIONS = {"Bottom", "Center", "Mouse"}
-local HEALTHBAR_POSITIONS = {"Top", "Bottom", "Left", "Right"}
-local UPDATE_MODES = {"RenderStepped", "Stepped", "Heartbeat"}
-local TEAM_CHECK_OPTIONS = {"TeamColor", "Team"}
-local LOCK_MODES_CONTENT = {"CFrame", "mousemoverel"}
-local LOCK_PARTS = {"Head", "HumanoidRootPart", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg", "LeftHand", "RightHand", "LeftLowerArm", "RightLowerArm", "LeftUpperArm", "RightUpperArm", "LeftFoot", "LeftLowerLeg", "UpperTorso", "LeftUpperLeg", "RightFoot", "RightLowerLeg", "LowerTorso", "RightUpperLeg"}
-local CROSSHAIR_POSITIONS = {"Mouse", "Center"}
+-- ========================================
+-- OPTIMIZACIONES: Cache y Referencias
+-- ========================================
+local decompile = decompile or disassemble
+local getnilinstances = getnilinstances or get_nil_instances
+local getscripthash = getscripthash or get_script_hash
+local getscriptclosure = getscriptclosure
+local getconstants = getconstants or debug.getconstants
+local getprotos = getprotos or debug.getprotos
+local getinfo = getinfo or debug.getinfo
 
---// Launching
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Roblox-Functions-Library/main/Library.lua"))()
+-- String optimizations
+local format = string.format
+local concat = table.concat
+local gsub = string.gsub
+local find = string.find
+local sub = string.sub
+local len = string.len
+local rep = string.rep
 
-local GUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/AirHub-V2/main/src/UI%20Library.lua"))()
-local ESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"))()
-local Aimbot = loadstring(game:HttpGet("https://raw.githubusercontent.com/deomdavis-prog/hook/refs/heads/main/obfuscated_content.lua"))()
+-- Table optimizations
+local insert = table.insert
+local remove = table.remove
 
---// Variables (Pre-cached)
-local MainFrame = GUI:Load()
+-- Math optimizations
+local max = math.max
+local floor = math.floor
 
-local ESP_DeveloperSettings = ESP.DeveloperSettings
-local ESP_Settings = ESP.Settings
-local ESP_Properties = ESP.Properties
-local Crosshair = ESP_Properties.Crosshair
-local CenterDot = Crosshair.CenterDot
+-- ========================================
+-- VARIABLES GLOBALES
+-- ========================================
+local threads = 0
+local scriptsdumped = 0
+local timedoutscripts = {}
+local decompilecache = {}
+local pathcache = {} -- Nuevo: Cache de fullnames
+local progressbind = Instance.new("BindableEvent")
+local threadbind = Instance.new("BindableEvent")
 
-local Aimbot_DeveloperSettings = Aimbot.DeveloperSettings
-local Aimbot_Settings = Aimbot.Settings
-local Aimbot_FOV = Aimbot.FOVSettings
+-- Services (cachear para mejor performance)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local CoreGui = game:GetService("CoreGui")
 
---// Configuración inicial (Batch)
-ESP_Settings.LoadConfigOnLaunch = false
-ESP_Settings.Enabled = false
-Crosshair.Enabled = false
-Aimbot_Settings.Enabled = false
+local plr = Players.LocalPlayer.Name
+local ignoredservices = {"Chat", "CoreGui", "CorePackages"}
+local ignored = {"PlayerModule", "RbxCharacterSounds", "PlayerScriptsLoader", "ChatScript", "BubbleChat"}
 
---// Tabs
-local General, GeneralSignal = MainFrame:Tab("General")
-local _Aimbot = MainFrame:Tab("Aimbot")
-local _ESP = MainFrame:Tab("ESP")
-local _Crosshair = MainFrame:Tab("Crosshair")
-local Settings = MainFrame:Tab("Settings")
+-- Overlay optimizado
+local overlay = Instance.new("Frame")
+overlay.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+overlay.Size = UDim2.fromScale(1, 1)
+overlay.Visible = false
+overlay.BorderSizePixel = 0
+overlay.Parent = CoreGui.RobloxGui
 
---// Functions (Optimizadas)
-local function AddValues(Section, Object, Exceptions, Prefix)
-	local Keys = {}
-	local KeyCount = 0
-	
-	-- Single pass: recolectar y ordenar
-	for Index in next, Object do
-		KeyCount = KeyCount + 1
-		Keys[KeyCount] = Index
+-- ========================================
+-- CONFIGURACIÓN DE DIRECTORIOS
+-- ========================================
+local maindir = "Pro Script Dumper"
+local placeid = game.PlaceId
+local placename = MarketplaceService:GetProductInfo(placeid).Name:gsub("[\\/:*?\"<>|\n\r]", " ")
+local foldername = format("%s/[%s] %s", maindir, placeid, placename)
+local exploit, version = (identifyexecutor and identifyexecutor()) or "Unknown Exploit"
+
+-- Pattern precompilado para mejor performance
+local invalid_chars_pattern = "[\\/:*?\"<>|\n\r]"
+local spaces_hyphens_pattern = "[%s%-]+"
+local username_pattern = plr:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1") -- Escape special chars
+
+-- ========================================
+-- FUNCIONES OPTIMIZADAS
+-- ========================================
+
+local function checkdirectories()
+	if not isfolder(maindir) then
+		makefolder(maindir)
+	end
+	if not isfolder(foldername) then
+		makefolder(foldername)
+	end
+end
+
+-- Optimizado: Usar tabla hash en lugar de loop
+local ignoredservices_hash = {}
+for _, v in next, ignoredservices do
+	ignoredservices_hash[v] = true
+end
+
+local ignored_hash = {}
+for _, v in next, ignored do
+	ignored_hash[v] = true
+end
+
+local function isignored(a)
+	-- Check name first (más rápido)
+	if ignored_hash[a.Name] then
+		return true
 	end
 	
-	tablesort(Keys)
+	-- Check ancestors
+	local ancestor = a.Parent
+	while ancestor do
+		if ignoredservices_hash[ancestor.Name] or ignored_hash[ancestor.Name] then
+			return true
+		end
+		ancestor = ancestor.Parent
+	end
 	
-	-- Cache exception lookup
-	local ExceptionSet = {}
-	if Exceptions then
-		for i = 1, #Exceptions do
-			ExceptionSet[Exceptions[i]] = true
+	return false
+end
+
+local function delay()
+	repeat task.wait(s.delay) until threads < s.threads
+end
+
+-- Optimizado: Cache de decompilación con límite de memoria
+local MAX_CACHE_SIZE = 100
+local cache_keys = {}
+
+local function decomp(a)
+	local hash = getscripthash(a)
+	local cached = decompilecache[hash]
+	
+	if cached then
+		return cached
+	end
+
+	local output = decompile(a)
+	
+	-- Memory management: Limitar tamaño del cache
+	if #cache_keys >= MAX_CACHE_SIZE then
+		local oldest = remove(cache_keys, 1)
+		decompilecache[oldest] = nil
+	end
+	
+	decompilecache[hash] = output
+	insert(cache_keys, hash)
+	
+	return output
+end
+
+-- Optimizado: Cache de fullnames con pre-procesamiento
+local function getfullname(a)
+	-- Check cache primero
+	local cached = pathcache[a]
+	if cached then
+		return cached
+	end
+	
+	local name = a:GetFullName()
+	
+	if not a:IsDescendantOf(game) then
+		pathcache[a] = name
+		return name
+	end
+	
+	local split = name:split(".")
+	local parts = {}
+	
+	-- Optimizado: Pre-alocar tabla y procesar en un solo paso
+	for i, v in next, split do
+		if find(v, spaces_hyphens_pattern) then
+			parts[i] = format("['%s']", v)
+		else
+			parts[i] = v
 		end
 	end
 	
-	-- Proceso optimizado: booleans
-	for i = 1, KeyCount do
-		local Index = Keys[i]
-		if not ExceptionSet[Index] then
-			local Value = Object[Index]
-			if type(Value) == "boolean" then
-				Section:Toggle({
-					Name = stringgsub(Index, "(%l)(%u)", "%1 %2"),
-					Flag = Prefix..Index,
-					Default = Value,
-					Callback = function(_Value)
-						Object[Index] = _Value
+	name = concat(parts, ".")
+	local service = parts[1]
+	local fullname = format("game:GetService(\"%s\")%s", service, sub(name, len(service) + 1, -1))
+	fullname = gsub(fullname, "%.%[", "[")
+	
+	if s.replace_username then
+		fullname = gsub(fullname, username_pattern, "LocalPlayer")
+	end
+	
+	pathcache[a] = fullname
+	return fullname
+end
+
+-- Optimizado: Construir contenido más eficientemente
+local function buildcontent(name, path, class, decomp_time, output, constants_num, protos_num, constants, protos, gotclosure)
+	local content = {
+		format("-- Name: %s", name),
+		format("-- Path: %s", path),
+		format("-- Class: %s", class),
+		format("-- Exploit: %s %s", exploit, version or ""),
+		format("-- Time to decompile: %s", decomp_time)
+	}
+	
+	if s.dump_debug then
+		if gotclosure then
+			insert(content, "\n-- Debug Info")
+			insert(content, format("-- # of Constants: %s", constants_num))
+			insert(content, format("-- # of Protos: %s", protos_num))
+			
+			if s.detailed_info then
+				insert(content, "\n-- Constants")
+				
+				local function searchconstants(t, count)
+					for i, v in next, t do
+						local i_type = typeof(i)
+						local v_type = typeof(v)
+						
+						if v_type ~= "table" then
+							v = gsub(tostring(v), "%%", "%%%%")
+						end
+						
+						insert(content, format("-- %s[%s%s%s] (%s) = %s (%s)",
+							rep("  ", count),
+							(i_type == "string" and "'" or ""),
+							(i_type == "Instance" and getfullname(i) or tostring(i)),
+							(i_type == "string" and "'" or ""),
+							i_type,
+							tostring(v),
+							v_type
+						))
+						
+						if v_type == "table" then
+							searchconstants(v, count + 1)
+						end
 					end
-				})
+				end
+				
+				searchconstants(constants, 0)
+				
+				insert(content, "\n-- Proto Info")
+				
+				for _, v in next, protos do
+					local info = getinfo(v)
+					insert(content, format("-- '%s'", info.name))
+					
+					for i2, v2 in next, info do
+						v2 = gsub(tostring(v2), "%%", "%%%%")
+						insert(content, format("--   ['%s'] = %s", i2, v2))
+					end
+				end
+			end
+		else
+			insert(content, "\n-- Debug Info (Could not get script closure)")
+		end
+	end
+	
+	insert(content, "\n" .. output)
+	
+	return concat(content, "\n")
+end
+
+-- Optimizado: Manejo de filename más eficiente
+local function sanitizefilename(filename)
+	filename = gsub(filename, invalid_chars_pattern, " ")
+	filename = gsub(filename, "%.%.", ". .")
+	
+	if len(filename) > 199 then
+		filename = sub(filename, 1, 195) .. ".lua"
+	end
+	
+	return filename
+end
+
+-- ========================================
+-- FUNCIÓN PRINCIPAL DE DUMP (OPTIMIZADA)
+-- ========================================
+local function dumpscript(v, isnil)
+	checkdirectories()
+	
+	task.spawn(function()
+		local function dump()
+			threads = threads + 1
+			threadbind:Fire("Active Threads:", threads)
+			
+			local success, err = pcall(function()
+				-- File Name
+				local id = v:GetDebugId()
+				local name = v.Name
+				local path = (isnil and "[nil] " or "") .. v:GetFullName()
+				
+				if s.replace_username then
+					path = gsub(path, username_pattern, "LocalPlayer")
+				end
+				
+				local filename = format("%s/%s (%s).lua", foldername, path, id)
+				filename = sanitizefilename(filename)
+				
+				-- Script Output
+				local time = os.clock()
+				local output
+				
+				if s.decompile then
+					local attempts = 0
+					local max_attempts = 3
+					
+					repeat
+						local success, result = pcall(decomp, v)
+						output = success and result or "-- Failed to decompile script"
+						attempts = attempts + 1
+						
+						if (os.clock() - time) > s.timeout then
+							output = "-- Decompilation timed out"
+							insert(timedoutscripts, format("Name: %s\nPath: %s\nClass: %s\nDebug Id: %s", name, path, v.ClassName, id))
+							break
+						end
+						
+						if output == "-- Failed to decompile script" and attempts < max_attempts then
+							task.wait(0.1)
+						end
+					until output ~= "-- Failed to decompile script" or attempts >= max_attempts
+					
+					if gsub(output, " ", "") == "" then
+						output = "-- Decompiler returned nothing. This script may not have bytecode or has anti-decompile implemented."
+					end
+				else
+					output = "-- Script decompilation is disabled"
+				end
+				
+				local decomp_time = format("%s seconds", os.clock() - time)
+				
+				-- Debug Info
+				local gotclosure, closure = pcall(getscriptclosure, v)
+				local constants, constants_num, protos, protos_num
+				
+				if s.dump_debug and gotclosure then
+					constants = getconstants(closure)
+					constants_num = #constants
+					protos = getprotos(closure)
+					protos_num = #protos
+				end
+				
+				-- Build and write content
+				local content = buildcontent(
+					name,
+					getfullname(v),
+					v.ClassName,
+					decomp_time,
+					output,
+					constants_num,
+					protos_num,
+					constants,
+					protos,
+					gotclosure
+				)
+				
+				writefile(filename, content)
+				scriptsdumped = scriptsdumped + 1
+				progressbind:Fire(scriptsdumped)
+			end)
+			
+			if not success then
+				warn(format("Error dumping script %s: %s", v:GetFullName(), tostring(err)))
+			end
+			
+			threads = threads - 1
+			threadbind:Fire("Active Threads:", threads)
+		end
+		
+		local function queue()
+			delay()
+			if threads < s.threads then
+				dump()
+			else
+				queue()
 			end
 		end
-	end
+		
+		if threads < s.threads then
+			dump()
+		else
+			queue()
+		end
+	end)
 	
-	-- Proceso optimizado: colors
-	for i = 1, KeyCount do
-		local Index = Keys[i]
-		if not ExceptionSet[Index] then
-			local Value = Object[Index]
-			if typeof(Value) == "Color3" then
-				Section:Colorpicker({
-					Name = stringgsub(Index, "(%l)(%u)", "%1 %2"),
-					Flag = Index,
-					Default = Value,
-					Callback = function(_Value)
-						Object[Index] = _Value
-					end
-				})
+	delay()
+end
+
+-- ========================================
+-- INTERFAZ GRÁFICA
+-- ========================================
+local Material = loadstring(game:HttpGet("https://raw.githubusercontent.com/zzerexx/scripts/main/MaterialLuaRemake.lua"))()
+local UI = Material.Load({
+	Title = "Script Dumper v2.0 Optimized",
+	Style = 3,
+	SizeX = 400,
+	SizeY = 515,
+	Theme = "Dark"
+})
+
+local page = UI.new("zzerexx was here")
+
+page.Toggle({
+	Text = "Decompile Scripts",
+	Callback = function(value)
+		s.decompile = value
+	end,
+	Enabled = s.decompile
+})
+
+page.Toggle({
+	Text = "Dump Debug Info",
+	Callback = function(value)
+		s.dump_debug = value
+	end,
+	Enabled = s.dump_debug,
+	Menu = {
+		Info = function()
+			UI.Banner("If enabled, output will include debug info such as constants, upvalues, and protos.")
+		end
+	}
+})
+
+page.Toggle({
+	Text = "Detailed Debug Info",
+	Callback = function(value)
+		s.detailed_info = value
+	end,
+	Enabled = s.detailed_info,
+	Menu = {
+		Info = function()
+			UI.Banner("<b>This feature may crash the game. Increase the <u>Delay</u> and decrease the # of <u>Max Threads</u> if needed.</b><br />If <b>Dump Debug Info</b> is enabled, it will dump more, detailed debug info.")
+		end
+	}
+})
+
+page.Slider({
+	Text = "Max Threads",
+	Callback = function(value)
+		s.threads = value
+	end,
+	Min = 1,
+	Max = 20,
+	Def = s.threads,
+	Suffix = " threads",
+	Menu = {
+		Info = function()
+			UI.Banner("This determines how many scripts can be decompiled at the same time.\n<b>Having more threads active at once will utilize more of your computer's resources and may increase the amount of timed-out decompilations.</b>")
+		end
+	}
+})
+
+page.Slider({
+	Text = "Delay",
+	Callback = function(value)
+		s.delay = value
+	end,
+	Min = 0,
+	Max = 1,
+	Def = s.delay,
+	Decimals = 2,
+	Suffix = " seconds"
+})
+
+page.Slider({
+	Text = "Decompile Timeout",
+	Callback = function(value)
+		s.timeout = value
+	end,
+	Min = 5,
+	Max = 30,
+	Def = s.timeout,
+	Suffix = " seconds",
+	Decimals = 2,
+	Menu = {
+		Info = function()
+			UI.Banner("If the decompile time exceeds this duration, it will be skipped.")
+		end
+	}
+})
+
+page.Toggle({
+	Text = "Include Nil Scripts",
+	Callback = function(value)
+		s.include_nil = value
+	end,
+	Enabled = s.include_nil,
+	Menu = {
+		Info = function()
+			UI.Banner("If enabled, scripts parented to nil will also be decompiled.")
+		end
+	}
+})
+
+page.Toggle({
+	Text = "Replace Username",
+	Callback = function(value)
+		s.replace_username = value
+	end,
+	Enabled = s.replace_username,
+	Menu = {
+		Info = function()
+			UI.Banner("If enabled, all objects that contain your username will be replaced to <b>LocalPlayer</b>.")
+		end
+	}
+})
+
+page.Toggle({
+	Text = "Disable 3D Rendering",
+	Callback = function(value)
+		s.disable_render = value
+	end,
+	Enabled = s.disable_render,
+	Menu = {
+		Info = function()
+			UI.Banner("If enabled, 3D rendering will be disabled temporarily while the script dumper is active. Allows more resources to be utilized towards decompiling.")
+		end
+	}
+})
+
+-- ========================================
+-- BOTÓN DE INICIO OPTIMIZADO
+-- ========================================
+local progressbar = nil
+
+page.Button({
+	Text = "Start Dumping",
+	Callback = function()
+		if progressbar then 
+			UI.Banner("A script dump is still currently in progress!") 
+			return 
+		end
+		
+		-- Preparación
+		if s.disable_render then
+			overlay.Visible = true
+			RunService:Set3dRenderingEnabled(false)
+		end
+		
+		-- Reset variables
+		local scripts = {}
+		local nilscripts = {}
+		timedoutscripts = {}
+		scriptsdumped = 0
+		decompilecache = {} -- Limpiar cache
+		pathcache = {} -- Limpiar cache
+		cache_keys = {}
+		
+		-- Recolectar scripts con filtro optimizado
+		local start_collect = os.clock()
+		
+		for _, v in next, game:GetDescendants() do
+			if (v:IsA("LocalScript") or v:IsA("ModuleScript")) and not isignored(v) then
+				insert(scripts, v)
 			end
 		end
-	end
-end
-
---// Factory functions para callbacks repetitivos
-local function CreateSliderCallback(Object, Property, Divisor)
-	if Divisor then
-		return function(Value)
-			Object[Property] = Value / Divisor
+		
+		if s.include_nil and getnilinstances then
+			for _, v in next, getnilinstances() do
+				if (v:IsA("LocalScript") or v:IsA("ModuleScript")) and not isignored(v) then
+					insert(nilscripts, v)
+				end
+			end
 		end
-	end
-	return function(Value)
-		Object[Property] = Value
-	end
-end
-
-local function CreateToggleCallback(Object, Property)
-	return function(Value)
-		Object[Property] = Value
-	end
-end
-
-local function CreateDropdownCallback(Object, Property)
-	return function(Value)
-		Object[Property] = Value
-	end
-end
-
---// General Tab
-local AimbotSection = General:Section({Name = "Aimbot Settings", Side = "Left"})
-local ESPSection = General:Section({Name = "ESP Settings", Side = "Right"})
-local ESPDeveloperSection = General:Section({Name = "ESP Developer Settings", Side = "Right"})
-
-AddValues(ESPDeveloperSection, ESP_DeveloperSettings, {}, "ESP_DeveloperSettings_")
-
-ESPDeveloperSection:Dropdown({
-	Name = "Update Mode",
-	Flag = "ESP_UpdateMode",
-	Content = UPDATE_MODES,
-	Default = ESP_DeveloperSettings.UpdateMode,
-	Callback = CreateDropdownCallback(ESP_DeveloperSettings, "UpdateMode")
-})
-
-ESPDeveloperSection:Dropdown({
-	Name = "Team Check Option",
-	Flag = "ESP_TeamCheckOption",
-	Content = TEAM_CHECK_OPTIONS,
-	Default = ESP_DeveloperSettings.TeamCheckOption,
-	Callback = CreateDropdownCallback(ESP_DeveloperSettings, "TeamCheckOption")
-})
-
-ESPDeveloperSection:Slider({
-	Name = "Rainbow Speed",
-	Flag = "ESP_RainbowSpeed",
-	Default = ESP_DeveloperSettings.RainbowSpeed * 10,
-	Min = 5,
-	Max = 30,
-	Callback = CreateSliderCallback(ESP_DeveloperSettings, "RainbowSpeed", 10)
-})
-
-ESPDeveloperSection:Slider({
-	Name = "Width Boundary",
-	Flag = "ESP_WidthBoundary",
-	Default = ESP_DeveloperSettings.WidthBoundary * 10,
-	Min = 5,
-	Max = 30,
-	Callback = CreateSliderCallback(ESP_DeveloperSettings, "WidthBoundary", 10)
-})
-
-ESPDeveloperSection:Button({
-	Name = "Refresh",
-	Callback = function()
-		ESP:Restart()
-	end
-})
-
-AddValues(ESPSection, ESP_Settings, {"LoadConfigOnLaunch", "PartsOnly"}, "ESPSettings_")
-
-AimbotSection:Toggle({
-	Name = "Enabled",
-	Flag = "Aimbot_Enabled",
-	Default = Aimbot_Settings.Enabled,
-	Callback = CreateToggleCallback(Aimbot_Settings, "Enabled")
-})
-
-AddValues(AimbotSection, Aimbot_Settings, {"Enabled", "Toggle", "OffsetToMoveDirection"}, "Aimbot_")
-
-local AimbotDeveloperSection = General:Section({Name = "Aimbot Developer Settings", Side = "Left"})
-
-AimbotDeveloperSection:Dropdown({
-	Name = "Update Mode",
-	Flag = "Aimbot_UpdateMode",
-	Content = UPDATE_MODES,
-	Default = Aimbot_DeveloperSettings.UpdateMode,
-	Callback = CreateDropdownCallback(Aimbot_DeveloperSettings, "UpdateMode")
-})
-
-AimbotDeveloperSection:Dropdown({
-	Name = "Team Check Option",
-	Flag = "Aimbot_TeamCheckOption",
-	Content = TEAM_CHECK_OPTIONS,
-	Default = Aimbot_DeveloperSettings.TeamCheckOption,
-	Callback = CreateDropdownCallback(Aimbot_DeveloperSettings, "TeamCheckOption")
-})
-
-AimbotDeveloperSection:Slider({
-	Name = "Rainbow Speed",
-	Flag = "Aimbot_RainbowSpeed",
-	Default = Aimbot_DeveloperSettings.RainbowSpeed * 10,
-	Min = 5,
-	Max = 30,
-	Callback = CreateSliderCallback(Aimbot_DeveloperSettings, "RainbowSpeed", 10)
-})
-
-AimbotDeveloperSection:Button({
-	Name = "Refresh",
-	Callback = function()
-		Aimbot.Restart()
+		
+		print(format("Script collection took %.2f seconds", os.clock() - start_collect))
+		
+		local total = #scripts + #nilscripts
+		
+		progressbar = page.ProgressBar({
+			Text = "Progress",
+			Event = progressbind,
+			Min = 0,
+			Max = total,
+			Def = 0,
+			Suffix = "/" .. total .. " scripts",
+			Percent = false
+		})
+		
+		UI.Banner(format("%d scripts found. Starting dump...", total))
+		
+		local time = os.clock()
+		
+		-- Procesar scripts en lotes para mejor gestión de memoria
+		task.spawn(function()
+			for i = 1, #scripts, s.batch_size do
+				local batch_end = max(i + s.batch_size - 1, #scripts)
+				
+				for j = i, batch_end do
+					dumpscript(scripts[j])
+				end
+				
+				-- Esperar que se procese el lote actual
+				repeat task.wait(0.1) until threads < s.threads / 2
+			end
+			
+			if s.include_nil and getnilinstances then
+				for _, v in next, nilscripts do
+					dumpscript(v, true)
+				end
+			end
+			
+			-- Esperar finalización
+			repeat task.wait(0.1) until threads == 0
+			
+			-- Resultados
+			local elapsed = os.clock() - time
+			local result = format("Successfully dumped %d scripts in %.2f seconds (%.2f scripts/sec).%s", 
+				scriptsdumped, 
+				elapsed,
+				scriptsdumped / elapsed,
+				#timedoutscripts > 0 and format("\n%d scripts timed out.", #timedoutscripts) or ""
+			)
+			
+			UI.Banner(result)
+			
+			if #timedoutscripts > 0 then
+				writefile(format("%s/! Timed out scripts.txt", foldername), concat(timedoutscripts, "\n\n"))
+			end
+			
+			if s.disable_render then
+				RunService:Set3dRenderingEnabled(true)
+				overlay.Visible = false
+			end
+			
+			task.wait(1)
+			if progressbar then
+				progressbar:Destroy()
+				progressbar = nil
+			end
+		end)
 	end
 })
 
---// Aimbot Tab
-local AimbotPropertiesSection = _Aimbot:Section({Name = "Properties", Side = "Left"})
-
-AimbotPropertiesSection:Toggle({
-	Name = "Toggle",
-	Flag = "Aimbot_Toggle",
-	Default = Aimbot_Settings.Toggle,
-	Callback = CreateToggleCallback(Aimbot_Settings, "Toggle")
+page.Label({
+	Text = "Active Threads: 0",
+	Event = threadbind
 })
-
-AimbotPropertiesSection:Toggle({
-	Name = "Offset To Move Direction",
-	Flag = "Aimbot_OffsetToMoveDirection",
-	Default = Aimbot_Settings.OffsetToMoveDirection,
-	Callback = CreateToggleCallback(Aimbot_Settings, "OffsetToMoveDirection")
-})
-
-AimbotPropertiesSection:Slider({
-	Name = "Offset Increment",
-	Flag = "Aimbot_OffsetIncrementy",
-	Default = Aimbot_Settings.OffsetIncrement,
-	Min = 1,
-	Max = 30,
-	Callback = CreateSliderCallback(Aimbot_Settings, "OffsetIncrement")
-})
-
-AimbotPropertiesSection:Slider({
-	Name = "Animation Sensitivity (ms)",
-	Flag = "Aimbot_Sensitivity",
-	Default = Aimbot_Settings.Sensitivity * 100,
-	Min = 0,
-	Max = 100,
-	Callback = CreateSliderCallback(Aimbot_Settings, "Sensitivity", 100)
-})
-
-AimbotPropertiesSection:Slider({
-	Name = "mousemoverel Sensitivity",
-	Flag = "Aimbot_Sensitivity2",
-	Default = Aimbot_Settings.Sensitivity2 * 100,
-	Min = 0,
-	Max = 500,
-	Callback = CreateSliderCallback(Aimbot_Settings, "Sensitivity2", 100)
-})
-
-AimbotPropertiesSection:Dropdown({
-	Name = "Lock Mode",
-	Flag = "Aimbot_Settings_LockMode",
-	Content = LOCK_MODES_CONTENT,
-	Default = Aimbot_Settings.LockMode == 1 and "CFrame" or "mousemoverel",
-	Callback = function(Value)
-		Aimbot_Settings.LockMode = Value == "CFrame" and 1 or 2
-	end
-})
-
-AimbotPropertiesSection:Dropdown({
-	Name = "Lock Part",
-	Flag = "Aimbot_LockPart",
-	Content = LOCK_PARTS,
-	Default = Aimbot_Settings.LockPart,
-	Callback = CreateDropdownCallback(Aimbot_Settings, "LockPart")
-})
-
-AimbotPropertiesSection:Keybind({
-	Name = "Trigger Key",
-	Flag = "Aimbot_TriggerKey",
-	Default = Aimbot_Settings.TriggerKey,
-	Callback = function(Keybind)
-		Aimbot_Settings.TriggerKey = Keybind
-	end
-})
-
-local UserBox = AimbotPropertiesSection:Box({
-	Name = "Player Name (shortened allowed)",
-	Flag = "Aimbot_PlayerName",
-	Placeholder = "Username"
-})
-
-AimbotPropertiesSection:Button({
-	Name = "Blacklist (Ignore) Player",
-	Callback = function()
-		pcall(Aimbot.Blacklist, Aimbot, GUI.flags["Aimbot_PlayerName"])
-		UserBox:Set("")
-	end
-})
-
-AimbotPropertiesSection:Button({
-	Name = "Whitelist Player",
-	Callback = function()
-		pcall(Aimbot.Whitelist, Aimbot, GUI.flags["Aimbot_PlayerName"])
-		UserBox:Set("")
-	end
-})
-
-local AimbotFOVSection = _Aimbot:Section({Name = "Field Of View Settings", Side = "Right"})
-
-AddValues(AimbotFOVSection, Aimbot_FOV, {}, "Aimbot_FOV_")
-
-AimbotFOVSection:Slider({
-	Name = "Field Of View",
-	Flag = "Aimbot_FOV_Radius",
-	Default = Aimbot_FOV.Radius,
-	Min = 0,
-	Max = 720,
-	Callback = CreateSliderCallback(Aimbot_FOV, "Radius")
-})
-
-AimbotFOVSection:Slider({
-	Name = "Sides",
-	Flag = "Aimbot_FOV_NumSides",
-	Default = Aimbot_FOV.NumSides,
-	Min = 3,
-	Max = 60,
-	Callback = CreateSliderCallback(Aimbot_FOV, "NumSides")
-})
-
-AimbotFOVSection:Slider({
-	Name = "Transparency",
-	Flag = "Aimbot_FOV_Transparency",
-	Default = Aimbot_FOV.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(Aimbot_FOV, "Transparency", 10)
-})
-
-AimbotFOVSection:Slider({
-	Name = "Thickness",
-	Flag = "Aimbot_FOV_Thickness",
-	Default = Aimbot_FOV.Thickness,
-	Min = 1,
-	Max = 5,
-	Callback = CreateSliderCallback(Aimbot_FOV, "Thickness")
-})
-
---// ESP Tab
-local ESP_Properties_Section = _ESP:Section({Name = "ESP Properties", Side = "Left"})
-
-AddValues(ESP_Properties_Section, ESP_Properties.ESP, {}, "ESP_Propreties_")
-
-ESP_Properties_Section:Dropdown({
-	Name = "Text Font",
-	Flag = "ESP_TextFont",
-	Content = FONTS,
-	Default = FONTS[ESP_Properties.ESP.Font + 1],
-	Callback = function(Value)
-		ESP_Properties.ESP.Font = Drawing.Fonts[Value]
-	end
-})
-
-ESP_Properties_Section:Slider({
-	Name = "Transparency",
-	Flag = "ESP_TextTransparency",
-	Default = ESP_Properties.ESP.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(ESP_Properties.ESP, "Transparency", 10)
-})
-
-ESP_Properties_Section:Slider({
-	Name = "Font Size",
-	Flag = "ESP_FontSize",
-	Default = ESP_Properties.ESP.Size,
-	Min = 1,
-	Max = 20,
-	Callback = CreateSliderCallback(ESP_Properties.ESP, "Size")
-})
-
-ESP_Properties_Section:Slider({
-	Name = "Offset",
-	Flag = "ESP_Offset",
-	Default = ESP_Properties.ESP.Offset,
-	Min = 10,
-	Max = 30,
-	Callback = CreateSliderCallback(ESP_Properties.ESP, "Offset")
-})
-
-local Tracer_Properties_Section = _ESP:Section({Name = "Tracer Properties", Side = "Right"})
-
-AddValues(Tracer_Properties_Section, ESP_Properties.Tracer, {}, "Tracer_Properties_")
-
-Tracer_Properties_Section:Dropdown({
-	Name = "Position",
-	Flag = "Tracer_Position",
-	Content = TRACER_POSITIONS,
-	Default = TRACER_POSITIONS[ESP_Properties.Tracer.Position],
-	Callback = function(Value)
-		ESP_Properties.Tracer.Position = tablefind(TRACER_POSITIONS, Value)
-	end
-})
-
-Tracer_Properties_Section:Slider({
-	Name = "Transparency",
-	Flag = "Tracer_Transparency",
-	Default = ESP_Properties.Tracer.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(ESP_Properties.Tracer, "Transparency", 10)
-})
-
-Tracer_Properties_Section:Slider({
-	Name = "Thickness",
-	Flag = "Tracer_Thickness",
-	Default = ESP_Properties.Tracer.Thickness,
-	Min = 1,
-	Max = 5,
-	Callback = CreateSliderCallback(ESP_Properties.Tracer, "Thickness")
-})
-
-local HeadDot_Properties_Section = _ESP:Section({Name = "Head Dot Properties", Side = "Left"})
-
-AddValues(HeadDot_Properties_Section, ESP_Properties.HeadDot, {}, "HeadDot_Properties_")
-
-HeadDot_Properties_Section:Slider({
-	Name = "Transparency",
-	Flag = "HeadDot_Transparency",
-	Default = ESP_Properties.HeadDot.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(ESP_Properties.HeadDot, "Transparency", 10)
-})
-
-HeadDot_Properties_Section:Slider({
-	Name = "Thickness",
-	Flag = "HeadDot_Thickness",
-	Default = ESP_Properties.HeadDot.Thickness,
-	Min = 1,
-	Max = 5,
-	Callback = CreateSliderCallback(ESP_Properties.HeadDot, "Thickness")
-})
-
-HeadDot_Properties_Section:Slider({
-	Name = "Sides",
-	Flag = "HeadDot_Sides",
-	Default = ESP_Properties.HeadDot.NumSides,
-	Min = 3,
-	Max = 30,
-	Callback = CreateSliderCallback(ESP_Properties.HeadDot, "NumSides")
-})
-
-local Box_Properties_Section = _ESP:Section({Name = "Box Properties", Side = "Left"})
-
-AddValues(Box_Properties_Section, ESP_Properties.Box, {}, "Box_Properties_")
-
-Box_Properties_Section:Slider({
-	Name = "Transparency",
-	Flag = "Box_Transparency",
-	Default = ESP_Properties.Box.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(ESP_Properties.Box, "Transparency", 10)
-})
-
-Box_Properties_Section:Slider({
-	Name = "Thickness",
-	Flag = "Box_Thickness",
-	Default = ESP_Properties.Box.Thickness,
-	Min = 1,
-	Max = 5,
-	Callback = CreateSliderCallback(ESP_Properties.Box, "Thickness")
-})
-
-local HealthBar_Properties_Section = _ESP:Section({Name = "Health Bar Properties", Side = "Right"})
-
-AddValues(HealthBar_Properties_Section, ESP_Properties.HealthBar, {}, "HealthBar_Properties_")
-
-HealthBar_Properties_Section:Dropdown({
-	Name = "Position",
-	Flag = "HealthBar_Position",
-	Content = HEALTHBAR_POSITIONS,
-	Default = HEALTHBAR_POSITIONS[ESP_Properties.HealthBar.Position],
-	Callback = function(Value)
-		ESP_Properties.HealthBar.Position = tablefind(HEALTHBAR_POSITIONS, Value)
-	end
-})
-
-HealthBar_Properties_Section:Slider({
-	Name = "Transparency",
-	Flag = "HealthBar_Transparency",
-	Default = ESP_Properties.HealthBar.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(ESP_Properties.HealthBar, "Transparency", 10)
-})
-
-HealthBar_Properties_Section:Slider({
-	Name = "Thickness",
-	Flag = "HealthBar_Thickness",
-	Default = ESP_Properties.HealthBar.Thickness,
-	Min = 1,
-	Max = 5,
-	Callback = CreateSliderCallback(ESP_Properties.HealthBar, "Thickness")
-})
-
-HealthBar_Properties_Section:Slider({
-	Name = "Offset",
-	Flag = "HealthBar_Offset",
-	Default = ESP_Properties.HealthBar.Offset,
-	Min = 4,
-	Max = 12,
-	Callback = CreateSliderCallback(ESP_Properties.HealthBar, "Offset")
-})
-
-HealthBar_Properties_Section:Slider({
-	Name = "Blue",
-	Flag = "HealthBar_Blue",
-	Default = ESP_Properties.HealthBar.Blue,
-	Min = 0,
-	Max = 255,
-	Callback = CreateSliderCallback(ESP_Properties.HealthBar, "Blue")
-})
-
-local Chams_Properties_Section = _ESP:Section({Name = "Chams Properties", Side = "Right"})
-
-AddValues(Chams_Properties_Section, ESP_Properties.Chams, {}, "Chams_Properties_")
-
-Chams_Properties_Section:Slider({
-	Name = "Transparency",
-	Flag = "Chams_Transparency",
-	Default = ESP_Properties.Chams.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(ESP_Properties.Chams, "Transparency", 10)
-})
-
-Chams_Properties_Section:Slider({
-	Name = "Thickness",
-	Flag = "Chams_Thickness",
-	Default = ESP_Properties.Chams.Thickness,
-	Min = 1,
-	Max = 5,
-	Callback = CreateSliderCallback(ESP_Properties.Chams, "Thickness")
-})
-
---// Crosshair Tab
-local Crosshair_Settings = _Crosshair:Section({Name = "Crosshair Settings (1 / 2)", Side = "Left"})
-
-Crosshair_Settings:Toggle({
-	Name = "Enabled",
-	Flag = "Crosshair_Enabled",
-	Default = Crosshair.Enabled,
-	Callback = CreateToggleCallback(Crosshair, "Enabled")
-})
-
-Crosshair_Settings:Toggle({
-	Name = "Enable ROBLOX Cursor",
-	Flag = "Cursor_Enabled",
-	Default = UserInputService.MouseIconEnabled,
-	Callback = SetMouseIconVisibility
-})
-
-AddValues(Crosshair_Settings, Crosshair, {"Enabled"}, "Crosshair_")
-
-Crosshair_Settings:Dropdown({
-	Name = "Position",
-	Flag = "Crosshair_Position",
-	Content = CROSSHAIR_POSITIONS,
-	Default = CROSSHAIR_POSITIONS[Crosshair.Position],
-	Callback = function(Value)
-		Crosshair.Position = Value == "Mouse" and 1 or 2
-	end
-})
-
-Crosshair_Settings:Slider({
-	Name = "Size",
-	Flag = "Crosshair_Size",
-	Default = Crosshair.Size,
-	Min = 1,
-	Max = 24,
-	Callback = CreateSliderCallback(Crosshair, "Size")
-})
-
-Crosshair_Settings:Slider({
-	Name = "Gap Size",
-	Flag = "Crosshair_GapSize",
-	Default = Crosshair.GapSize,
-	Min = 0,
-	Max = 24,
-	Callback = CreateSliderCallback(Crosshair, "GapSize")
-})
-
-Crosshair_Settings:Slider({
-	Name = "Rotation (Degrees)",
-	Flag = "Crosshair_Rotation",
-	Default = Crosshair.Rotation,
-	Min = -180,
-	Max = 180,
-	Callback = CreateSliderCallback(Crosshair, "Rotation")
-})
-
-Crosshair_Settings:Slider({
-	Name = "Rotation Speed",
-	Flag = "Crosshair_RotationSpeed",
-	Default = Crosshair.RotationSpeed,
-	Min = 1,
-	Max = 20,
-	Callback = CreateSliderCallback(Crosshair, "RotationSpeed")
-})
-
-Crosshair_Settings:Slider({
-	Name = "Pulsing Step",
-	Flag = "Crosshair_PulsingStep",
-	Default = Crosshair.PulsingStep,
-	Min = 0,
-	Max = 24,
-	Callback = CreateSliderCallback(Crosshair, "PulsingStep")
-})
-
-local _Crosshair_Settings = _Crosshair:Section({Name = "Crosshair Settings (2 / 2)", Side = "Left"})
-
-_Crosshair_Settings:Slider({
-	Name = "Pulsing Speed",
-	Flag = "Crosshair_PulsingSpeed",
-	Default = Crosshair.PulsingSpeed,
-	Min = 1,
-	Max = 20,
-	Callback = CreateSliderCallback(Crosshair, "PulsingSpeed")
-})
-
-_Crosshair_Settings:Slider({
-	Name = "Pulsing Boundary (Min)",
-	Flag = "Crosshair_Pulse_Min",
-	Default = Crosshair.PulsingBounds[1],
-	Min = 0,
-	Max = 24,
-	Callback = function(Value)
-		Crosshair.PulsingBounds[1] = Value
-	end
-})
-
-_Crosshair_Settings:Slider({
-	Name = "Pulsing Boundary (Max)",
-	Flag = "Crosshair_Pulse_Max",
-	Default = Crosshair.PulsingBounds[2],
-	Min = 0,
-	Max = 24,
-	Callback = function(Value)
-		Crosshair.PulsingBounds[2] = Value
-	end
-})
-
-_Crosshair_Settings:Slider({
-	Name = "Transparency",
-	Flag = "Crosshair_Transparency",
-	Default = Crosshair.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(Crosshair, "Transparency", 10)
-})
-
-_Crosshair_Settings:Slider({
-	Name = "Thickness",
-	Flag = "Crosshair_Thickness",
-	Default = Crosshair.Thickness,
-	Min = 1,
-	Max = 5,
-	Callback = CreateSliderCallback(Crosshair, "Thickness")
-})
-
-local Crosshair_CenterDot = _Crosshair:Section({Name = "Center Dot Settings", Side = "Right"})
-
-Crosshair_CenterDot:Toggle({
-	Name = "Enabled",
-	Flag = "Crosshair_CenterDot_Enabled",
-	Default = CenterDot.Enabled,
-	Callback = CreateToggleCallback(CenterDot, "Enabled")
-})
-
-AddValues(Crosshair_CenterDot, CenterDot, {"Enabled"}, "Crosshair_CenterDot_")
-
-Crosshair_CenterDot:Slider({
-	Name = "Size / Radius",
-	Flag = "Crosshair_CenterDot_Radius",
-	Default = CenterDot.Radius,
-	Min = 2,
-	Max = 8,
-	Callback = CreateSliderCallback(CenterDot, "Radius")
-})
-
-Crosshair_CenterDot:Slider({
-	Name = "Sides",
-	Flag = "Crosshair_CenterDot_Sides",
-	Default = CenterDot.NumSides,
-	Min = 3,
-	Max = 30,
-	Callback = CreateSliderCallback(CenterDot, "NumSides")
-})
-
-Crosshair_CenterDot:Slider({
-	Name = "Transparency",
-	Flag = "Crosshair_CenterDot_Transparency",
-	Default = CenterDot.Transparency * 10,
-	Min = 1,
-	Max = 10,
-	Callback = CreateSliderCallback(CenterDot, "Transparency", 10)
-})
-
-Crosshair_CenterDot:Slider({
-	Name = "Thickness",
-	Flag = "Crosshair_CenterDot_Thickness",
-	Default = CenterDot.Thickness,
-	Min = 1,
-	Max = 5,
-	Callback = CreateSliderCallback(CenterDot, "Thickness")
-})
-
---// Settings Tab
-local SettingsSection = Settings:Section({Name = "Settings", Side = "Left"})
-local ProfilesSection = Settings:Section({Name = "Profiles", Side = "Left"})
-local InformationSection = Settings:Section({Name = "Information", Side = "Right"})
-
-SettingsSection:Keybind({
-	Name = "Show / Hide GUI",
-	Flag = "UI Toggle",
-	Default = Enum.KeyCode.RightShift,
-	Blacklist = {Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2, Enum.UserInputType.MouseButton3},
-	Callback = function(_, NewKeybind)
-		if not NewKeybind then
-			GUI:Close()
-		end
-	end
-})
-
-SettingsSection:Button({
-	Name = "Unload Script",
-	Callback = function()
-		GUI:Unload()
-		ESP:Exit()
-		Aimbot:Exit()
-		getgenv().AirHubV2Loaded = nil
-	end
-})
-
-local ConfigList = ProfilesSection:Dropdown({
-	Name = "Configurations",
-	Flag = "Config Dropdown",
-	Content = GUI:GetConfigs()
-})
-
-ProfilesSection:Box({
-	Name = "Configuration Name",
-	Flag = "Config Name",
-	Placeholder = "Config Name"
-})
-
-ProfilesSection:Button({
-	Name = "Load Configuration",
-	Callback = function()
-		GUI:LoadConfig(GUI.flags["Config Dropdown"])
-	end
-})
-
-ProfilesSection:Button({
-	Name = "Delete Configuration",
-	Callback = function()
-		GUI:DeleteConfig(GUI.flags["Config Dropdown"])
-		ConfigList:Refresh(GUI:GetConfigs())
-	end
-})
-
-ProfilesSection:Button({
-	Name = "Save Configuration",
-	Callback = function()
-		GUI:SaveConfig(GUI.flags["Config Dropdown"] or GUI.flags["Config Name"])
-		ConfigList:Refresh(GUI:GetConfigs())
-	end
-})
-
-InformationSection:Label("Made by Exunys")
-
-InformationSection:Button({
-	Name = "Copy GitHub",
-	Callback = function()
-		setclipboard("https://github.com/Exunys")
-	end
-})
-
-InformationSection:Label("AirTeam © 2022 - "..osdate("%Y"))
-
-InformationSection:Button({
-	Name = "Copy Discord Invite",
-	Callback = function()
-		setclipboard("https://discord.gg/Ncz3H3quUZ")
-	end
-})
-
---// Finalization
-ESP.Load()
-Aimbot.Load()
-getgenv().AirHubV2Loaded = true
-getgenv().AirHubV2Loading = nil
-
-GeneralSignal:Fire()
-GUI:Close()
