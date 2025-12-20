@@ -1,309 +1,684 @@
--- Improved and Updated ExunysDeveloperAimbot (Version 3.1 - December 2025)
--- Technical Updates:
--- - Added velocity prediction for moving targets to improve accuracy on dynamic players.
--- - Introduced optional jitter for humanized aiming to reduce detection risks.
--- - Uncommented and fixed Degrade check for better compatibility with various exploits.
--- - Optimized loops and caching for better performance.
--- - Updated to use AssemblyLinearVelocity instead of deprecated Velocity.
--- - Improved readability with better formatting and comments.
--- - Added support for randomized lock parts for variety.
--- - Ensured compatibility with 2025 Roblox anti-cheat considerations by favoring mouse simulation.
+-- ========================================
+-- VM & STRING DEOBFUSCATOR v3.0
+-- Advanced VM Analysis + String Decryption
+-- ========================================
 
-local game, workspace = game, workspace
-local getrawmetatable, getmetatable, setmetatable, pcall, getgenv, next, tick = getrawmetatable, getmetatable, setmetatable, pcall, getgenv, next, tick
-local Vector2new, Vector3zero, CFramenew, Color3fromRGB, Color3fromHSV, Drawingnew, TweenInfonew = Vector2.new, Vector3.zero, CFrame.new, Color3.fromRGB, Color3.fromHSV, Drawing.new, TweenInfo.new
-local getupvalue, mousemoverel, tablefind, tableremove, stringlower, stringsub, mathclamp, mathrandom = debug.getupvalue, mousemoverel or (Input and Input.MouseMove), table.find, table.remove, string.lower, string.sub, math.clamp, math.random
+local VMDeobfuscator = {}
+VMDeobfuscator.__index = VMDeobfuscator
 
-local GameMetatable = getrawmetatable and getrawmetatable(game) or {
-    __index = function(self, Index) return self[Index] end,
-    __newindex = function(self, Index, Value) self[Index] = Value end
+-- ========================================
+-- CONFIGURACIÓN
+-- ========================================
+local config = {
+	verbose = true,
+	max_iterations = 1000,
+	timeout = 10,
+	deep_analysis = true,
+	export_vm_map = true,
+	auto_beautify = true,
 }
-local __index = GameMetatable.__index
-local __newindex = GameMetatable.__newindex
-local getrenderproperty, setrenderproperty = getrenderproperty or __index, setrenderproperty or __newindex
-local GetService = __index(game, "GetService")
 
---// Services
-local RunService = GetService(game, "RunService")
-local UserInputService = GetService(game, "UserInputService")
-local TweenService = GetService(game, "TweenService")
-local Players = GetService(game, "Players")
+-- ========================================
+-- UTILIDADES DE STRING
+-- ========================================
+local StringDecryptor = {}
 
---// Service Methods
-local LocalPlayer = __index(Players, "LocalPlayer")
-local Camera = __index(workspace, "CurrentCamera")
-local FindFirstChild, FindFirstChildOfClass = __index(game, "FindFirstChild"), __index(game, "FindFirstChildOfClass")
-local GetDescendants = __index(game, "GetDescendants")
-local WorldToViewportPoint = __index(Camera, "WorldToViewportPoint")
-local GetPartsObscuringTarget = __index(Camera, "GetPartsObscuringTarget")
-local GetMouseLocation = __index(UserInputService, "GetMouseLocation")
-local GetPlayers = __index(Players, "GetPlayers")
-
---// Variables
-local RequiredDistance, Typing, Running, ServiceConnections, Animation, OriginalSensitivity = 2000, false, false, {}
-local Connect, Disconnect = __index(game, "DescendantAdded").Connect
-
---// Degrade Check (Uncommented and Fixed for 2025 Exploit Compatibility)
-local Degrade = false
-do
-    local success, err = pcall(function()
-        local TemporaryDrawing = Drawingnew("Line")
-        getrenderproperty = getupvalue(getmetatable(TemporaryDrawing).__index, 4)
-        setrenderproperty = getupvalue(getmetatable(TemporaryDrawing).__newindex, 4)
-        TemporaryDrawing:Remove()
-    end)
-    if not success then
-        Degrade = true
-        getrenderproperty = function(Object, Key) return Object[Key] end
-        setrenderproperty = function(Object, Key, Value) Object[Key] = Value end
-    end
-    local TemporaryConnection = Connect(__index(game, "DescendantAdded"), function() end)
-    Disconnect = TemporaryConnection.Disconnect
-    Disconnect(TemporaryConnection)
+function StringDecryptor.detectEncryption(str)
+	local patterns = {
+		xor = str:match("bit%.bxor") or str:match("bit32%.bxor"),
+		base64 = str:match("[A-Za-z0-9+/]+=*") and #str % 4 == 0,
+		hex = str:match("^[0-9a-fA-F]+$"),
+		char_array = str:match("%{%s*%d+%s*,%s*%d+"),
+		substitution = str:match("string%.char") and str:match("%d+"),
+		custom = str:match("decrypt") or str:match("decode"),
+	}
+	return patterns
 end
 
---// Checking for multiple processes
-if ExunysDeveloperAimbot and ExunysDeveloperAimbot.Exit then
-    ExunysDeveloperAimbot:Exit()
+function StringDecryptor.xorDecrypt(encrypted, key)
+	if type(encrypted) ~= "string" or type(key) ~= "number" then
+		return nil
+	end
+	
+	local result = {}
+	for i = 1, #encrypted do
+		local byte = encrypted:byte(i)
+		local decrypted = bit32 and bit32.bxor(byte, key) or (byte ~ key)
+		table.insert(result, string.char(decrypted))
+	end
+	return table.concat(result)
 end
 
---// Environment
-getgenv().ExunysDeveloperAimbot = {
-    DeveloperSettings = {
-        UpdateMode = "RenderStepped",
-        TeamCheckOption = "TeamColor",
-        RainbowSpeed = 1  -- Bigger = Slower
-    },
-    Settings = {
-        Enabled = true,
-        TeamCheck = false,
-        AliveCheck = true,
-        WallCheck = false,
-        OffsetToMoveDirection = false,
-        OffsetIncrement = 15,
-        Sensitivity = 0,  -- Animation length (in seconds) before fully locking onto target
-        Sensitivity2 = 3.5,  -- mousemoverel Sensitivity
-        LockMode = 2,  -- 1 = CFrame (potentially detectable); 2 = mousemoverel (more human-like)
-        LockPart = "Head",  -- Body part to lock on (now supports randomizing)
-        RandomLockPart = false,  -- Randomize between Head, Torso, etc.
-        TriggerKey = Enum.UserInputType.MouseButton2,
-        Toggle = false,
-        Prediction = 0.135,  -- Velocity prediction factor (adjusted for 2025 latency averages)
-        UseJitter = true,  -- Add human-like jitter to aim
-        JitterAmount = 0.5  -- Amount of random jitter (lower = subtler)
-    },
-    FOVSettings = {
-        Enabled = true,
-        Visible = true,
-        Radius = 90,
-        NumSides = 60,
-        Thickness = 1,
-        Transparency = 1,
-        Filled = false,
-        RainbowColor = false,
-        RainbowOutlineColor = false,
-        Color = Color3fromRGB(255, 255, 255),
-        OutlineColor = Color3fromRGB(0, 0, 0),
-        LockedColor = Color3fromRGB(255, 150, 150)
-    },
-    Blacklisted = {},
-    FOVCircleOutline = Drawingnew("Circle"),
-    FOVCircle = Drawingnew("Circle")
-}
-local Environment = getgenv().ExunysDeveloperAimbot
-setrenderproperty(Environment.FOVCircle, "Visible", false)
-setrenderproperty(Environment.FOVCircleOutline, "Visible", false)
-
---// Core Functions
-local FixUsername = function(String)
-    local Result
-    for _, Value in next, GetPlayers(Players) do
-        local Name = __index(Value, "Name")
-        if stringsub(stringlower(Name), 1, #String) == stringlower(String) then
-            Result = Name
-        end
-    end
-    return Result
+function StringDecryptor.multiXorDecrypt(encrypted, keys)
+	if type(keys) == "table" then
+		local result = {}
+		for i = 1, #encrypted do
+			local byte = encrypted:byte(i)
+			local keyIndex = ((i - 1) % #keys) + 1
+			local key = keys[keyIndex]
+			local decrypted = bit32 and bit32.bxor(byte, key) or (byte ~ key)
+			table.insert(result, string.char(decrypted))
+		end
+		return table.concat(result)
+	end
+	return nil
 end
 
-local GetRainbowColor = function()
-    local RainbowSpeed = Environment.DeveloperSettings.RainbowSpeed
-    return Color3fromHSV(tick() % RainbowSpeed / RainbowSpeed, 1, 1)
+function StringDecryptor.base64Decode(str)
+	local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+	str = str:gsub('[^'..b..'=]', '')
+	
+	return (str:gsub('.', function(x)
+		if x == '=' then return '' end
+		local r, f = '', (b:find(x) - 1)
+		for i = 6, 1, -1 do
+			r = r .. (f % 2^i - f % 2^(i-1) > 0 and '1' or '0')
+		end
+		return r
+	end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+		if #x ~= 8 then return '' end
+		local c = 0
+		for i = 1, 8 do
+			c = c + (x:sub(i,i) == '1' and 2^(8-i) or 0)
+		end
+		return string.char(c)
+	end))
 end
 
-local ConvertVector = function(Vector)
-    return Vector2new(Vector.X, Vector.Y)
+function StringDecryptor.charArrayDecode(arr)
+	if type(arr) ~= "table" then return nil end
+	local result = {}
+	for _, v in ipairs(arr) do
+		if type(v) == "number" then
+			table.insert(result, string.char(v))
+		end
+	end
+	return table.concat(result)
 end
 
-local CancelLock = function()
-    Environment.Locked = nil
-    local FOVCircle = Degrade and Environment.FOVCircle or Environment.FOVCircle.__OBJECT
-    setrenderproperty(FOVCircle, "Color", Environment.FOVSettings.Color)
-    __newindex(UserInputService, "MouseDeltaSensitivity", OriginalSensitivity)
-    if Animation then
-        Animation:Cancel()
-    end
+function StringDecryptor.substitutionDecode(str, map)
+	if type(map) ~= "table" then return str end
+	return str:gsub(".", function(c)
+		return map[c] or c
+	end)
 end
 
-local GetClosestPlayer = function()
-    local Settings = Environment.Settings
-    local LockPart = Settings.LockPart
-    if Settings.RandomLockPart then
-        local parts = {"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso"}
-        LockPart = parts[mathrandom(1, #parts)]
-    end
-    if not Environment.Locked then
-        RequiredDistance = Environment.FOVSettings.Enabled and Environment.FOVSettings.Radius or 2000
-        for _, Value in next, GetPlayers(Players) do
-            local Character = __index(Value, "Character")
-            local Humanoid = Character and FindFirstChildOfClass(Character, "Humanoid")
-            if Value ~= LocalPlayer and not tablefind(Environment.Blacklisted, __index(Value, "Name")) and Character and FindFirstChild(Character, LockPart) and Humanoid then
-                local PartPosition, TeamCheckOption = __index(Character[LockPart], "Position"), Environment.DeveloperSettings.TeamCheckOption
-                if Settings.TeamCheck and __index(Value, TeamCheckOption) == __index(LocalPlayer, TeamCheckOption) then continue end
-                if Settings.AliveCheck and __index(Humanoid, "Health") <= 0 then continue end
-                if Settings.WallCheck then
-                    local BlacklistTable = GetDescendants(__index(LocalPlayer, "Character"))
-                    for _, Val in next, GetDescendants(Character) do
-                        BlacklistTable[#BlacklistTable + 1] = Val
-                    end
-                    if #GetPartsObscuringTarget(Camera, {PartPosition}, BlacklistTable) > 0 then continue end
-                end
-                local Vector, OnScreen = WorldToViewportPoint(Camera, PartPosition)
-                Vector = ConvertVector(Vector)
-                local Distance = (GetMouseLocation(UserInputService) - Vector).Magnitude
-                if Distance < RequiredDistance and OnScreen then
-                    RequiredDistance, Environment.Locked = Distance, Value
-                end
-            end
-        end
-    elseif (GetMouseLocation(UserInputService) - ConvertVector(WorldToViewportPoint(Camera, __index(__index(__index(Environment.Locked, "Character"), LockPart), "Position")))).Magnitude > RequiredDistance then
-        CancelLock()
-    end
+-- Desencriptador inteligente que prueba múltiples métodos
+function StringDecryptor.smartDecrypt(encrypted)
+	local results = {}
+	
+	-- Intentar Base64
+	local success, decoded = pcall(StringDecryptor.base64Decode, encrypted)
+	if success and decoded and decoded ~= encrypted then
+		table.insert(results, {method = "Base64", result = decoded, confidence = 0.8})
+	end
+	
+	-- Intentar XOR con claves comunes
+	local common_keys = {7, 13, 42, 69, 88, 123, 255}
+	for _, key in ipairs(common_keys) do
+		local success, decoded = pcall(StringDecryptor.xorDecrypt, encrypted, key)
+		if success and decoded and decoded:match("[%w%s]+") then
+			table.insert(results, {method = "XOR-"..key, result = decoded, confidence = 0.6})
+		end
+	end
+	
+	-- Intentar hex decode
+	if encrypted:match("^[0-9a-fA-F]+$") and #encrypted % 2 == 0 then
+		local decoded = encrypted:gsub("..", function(hex)
+			return string.char(tonumber(hex, 16))
+		end)
+		if decoded:match("[%w%s]+") then
+			table.insert(results, {method = "Hex", result = decoded, confidence = 0.7})
+		end
+	end
+	
+	return results
 end
 
-local Load = function()
-    OriginalSensitivity = __index(UserInputService, "MouseDeltaSensitivity")
-    local Settings, FOVCircle, FOVCircleOutline, FOVSettings = Environment.Settings, Environment.FOVCircle, Environment.FOVCircleOutline, Environment.FOVSettings
-    if not Degrade then
-        FOVCircle, FOVCircleOutline = FOVCircle.__OBJECT, FOVCircleOutline.__OBJECT
-    end
-    ServiceConnections.RenderSteppedConnection = Connect(__index(RunService, Environment.DeveloperSettings.UpdateMode), function()
-        local OffsetToMoveDirection, LockPart = Settings.OffsetToMoveDirection, Settings.LockPart
-        if FOVSettings.Enabled and Settings.Enabled then
-            for Index, Value in next, FOVSettings do
-                if Index == "Color" then continue end
-                if pcall(getrenderproperty, FOVCircle, Index) then
-                    setrenderproperty(FOVCircle, Index, Value)
-                    setrenderproperty(FOVCircleOutline, Index, Value)
-                end
-            end
-            setrenderproperty(FOVCircle, "Color", (Environment.Locked and FOVSettings.LockedColor) or FOVSettings.RainbowColor and GetRainbowColor() or FOVSettings.Color)
-            setrenderproperty(FOVCircleOutline, "Color", FOVSettings.RainbowOutlineColor and GetRainbowColor() or FOVSettings.OutlineColor)
-            setrenderproperty(FOVCircleOutline, "Thickness", FOVSettings.Thickness + 1)
-            setrenderproperty(FOVCircle, "Position", GetMouseLocation(UserInputService))
-            setrenderproperty(FOVCircleOutline, "Position", GetMouseLocation(UserInputService))
-        else
-            setrenderproperty(FOVCircle, "Visible", false)
-            setrenderproperty(FOVCircleOutline, "Visible", false)
-        end
-        if Running and Settings.Enabled then
-            GetClosestPlayer()
-            local Offset = OffsetToMoveDirection and __index(FindFirstChildOfClass(__index(Environment.Locked, "Character"), "Humanoid"), "MoveDirection") * (mathclamp(Settings.OffsetIncrement, 1, 30) / 10) or Vector3zero
-            if Environment.Locked then
-                local Character = __index(Environment.Locked, "Character")
-                local LockPartInstance = Character[LockPart]
-                local RootPart = FindFirstChild(Character, "HumanoidRootPart")
-                local PredictedPosition = LockPartInstance.Position + (RootPart and RootPart.AssemblyLinearVelocity or LockPartInstance.AssemblyLinearVelocity) * Settings.Prediction + Offset
-                if Settings.UseJitter then
-                    local Jitter = Settings.JitterAmount
-                    PredictedPosition = PredictedPosition + Vector3.new(mathrandom(-Jitter * 10, Jitter * 10)/10, mathrandom(-Jitter * 10, Jitter * 10)/10, mathrandom(-Jitter * 10, Jitter * 10)/10)
-                end
-                local LockedPosition = WorldToViewportPoint(Camera, PredictedPosition)
-                if Settings.LockMode == 2 then
-                    mousemoverel((LockedPosition.X - GetMouseLocation(UserInputService).X) / Settings.Sensitivity2, (LockedPosition.Y - GetMouseLocation(UserInputService).Y) / Settings.Sensitivity2)
-                else
-                    if Settings.Sensitivity > 0 then
-                        Animation = TweenService:Create(Camera, TweenInfonew(Settings.Sensitivity, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = CFramenew(Camera.CFrame.Position, PredictedPosition)})
-                        Animation:Play()
-                    else
-                        __newindex(Camera, "CFrame", CFramenew(Camera.CFrame.Position, PredictedPosition))
-                    end
-                    __newindex(UserInputService, "MouseDeltaSensitivity", 0)
-                end
-                setrenderproperty(FOVCircle, "Color", FOVSettings.LockedColor)
-            end
-        end
-    end)
-    ServiceConnections.InputBeganConnection = Connect(__index(UserInputService, "InputBegan"), function(Input)
-        local TriggerKey, Toggle = Settings.TriggerKey, Settings.Toggle
-        if Typing then return end
-        if Input.UserInputType == Enum.UserInputType.Keyboard and Input.KeyCode == TriggerKey or Input.UserInputType == TriggerKey then
-            if Toggle then
-                Running = not Running
-                if not Running then CancelLock() end
-            else
-                Running = true
-            end
-        end
-    end)
-    ServiceConnections.InputEndedConnection = Connect(__index(UserInputService, "InputEnded"), function(Input)
-        local TriggerKey, Toggle = Settings.TriggerKey, Settings.Toggle
-        if Toggle or Typing then return end
-        if Input.UserInputType == Enum.UserInputType.Keyboard and Input.KeyCode == TriggerKey or Input.UserInputType == TriggerKey then
-            Running = false
-            CancelLock()
-        end
-    end)
+-- ========================================
+-- ANÁLISIS DE VM (VIRTUAL MACHINE)
+-- ========================================
+local VMAnalyzer = {}
+
+function VMAnalyzer.new()
+	local self = setmetatable({}, {__index = VMAnalyzer})
+	self.instructions = {}
+	self.opcodes = {}
+	self.constants = {}
+	self.vm_structure = {}
+	self.control_flow = {}
+	return self
 end
 
---// Typing Check
-ServiceConnections.TypingStartedConnection = Connect(__index(UserInputService, "TextBoxFocused"), function() Typing = true end)
-ServiceConnections.TypingEndedConnection = Connect(__index(UserInputService, "TextBoxFocusReleased"), function() Typing = false end)
-
---// Functions
-function Environment.Exit(self)  -- METHOD | ExunysDeveloperAimbot:Exit(<void>)
-    assert(self, "EXUNYS_AIMBOT-V3.Exit: Missing parameter #1 \"self\" <table>.")
-    for Index, _ in next, ServiceConnections do
-        Disconnect(ServiceConnections[Index])
-    end
-    Load = nil; ConvertVector = nil; CancelLock = nil; GetClosestPlayer = nil; GetRainbowColor = nil; FixUsername = nil
-    self.FOVCircle:Remove()
-    self.FOVCircleOutline:Remove()
-    getgenv().ExunysDeveloperAimbot = nil
+function VMAnalyzer:detectVMType(code)
+	local vm_signatures = {
+		luraph = {
+			patterns = {"IL_%x+", "Luraph", "LL_%x+", "LLIL"},
+			confidence = 0
+		},
+		ironbrew = {
+			patterns = {"Instruction%[", "Enum%[", "Opcode", "Stack%["},
+			confidence = 0
+		},
+		moonsec = {
+			patterns = {"Inst%[", "Stk%[", "Enum%.OpCode"},
+			confidence = 0
+		},
+		psu = {
+			patterns = {"PSU", "Proto", "Chunk"},
+			confidence = 0
+		},
+		custom = {
+			patterns = {"VM_", "Execute", "Interpreter"},
+			confidence = 0
+		}
+	}
+	
+	for vm_type, data in pairs(vm_signatures) do
+		for _, pattern in ipairs(data.patterns) do
+			local matches = select(2, code:gsub(pattern, ""))
+			data.confidence = data.confidence + (matches * 0.2)
+		end
+	end
+	
+	local best_match = "unknown"
+	local best_confidence = 0
+	for vm_type, data in pairs(vm_signatures) do
+		if data.confidence > best_confidence then
+			best_match = vm_type
+			best_confidence = data.confidence
+		end
+	end
+	
+	return best_match, best_confidence
 end
 
-function Environment.Restart()  -- ExunysDeveloperAimbot.Restart(<void>)
-    for Index, _ in next, ServiceConnections do
-        Disconnect(ServiceConnections[Index])
-    end
-    Load()
+function VMAnalyzer:extractOpcodes(code)
+	local opcodes = {}
+	
+	-- Patrón para opcodes numéricos
+	for opcode in code:gmatch("Opcode%s*=%s*(%d+)") do
+		table.insert(opcodes, {type = "numeric", value = tonumber(opcode)})
+	end
+	
+	-- Patrón para opcodes enum
+	for opcode in code:gmatch("Enum%.OpCode%.(%w+)") do
+		table.insert(opcodes, {type = "enum", value = opcode})
+	end
+	
+	-- Patrón para arrays de opcodes
+	for array in code:gmatch("%{([%d,%s]+)%}") do
+		for num in array:gmatch("%d+") do
+			table.insert(opcodes, {type = "array", value = tonumber(num)})
+		end
+	end
+	
+	self.opcodes = opcodes
+	return opcodes
 end
 
-function Environment.Blacklist(self, Username)  -- METHOD | ExunysDeveloperAimbot:Blacklist(<string> Player Name)
-    assert(self, "EXUNYS_AIMBOT-V3.Blacklist: Missing parameter #1 \"self\" <table>.")
-    assert(Username, "EXUNYS_AIMBOT-V3.Blacklist: Missing parameter #2 \"Username\" <string>.")
-    Username = FixUsername(Username)
-    assert(Username, "EXUNYS_AIMBOT-V3.Blacklist: User "..Username.." couldn't be found.")
-    self.Blacklisted[#self.Blacklisted + 1] = Username
+function VMAnalyzer:extractConstants(code)
+	local constants = {}
+	
+	-- Strings
+	for str in code:gmatch('"([^"]+)"') do
+		table.insert(constants, {type = "string", value = str})
+	end
+	
+	for str in code:gmatch("'([^']+)'") do
+		table.insert(constants, {type = "string", value = str})
+	end
+	
+	-- Numbers
+	for num in code:gmatch("(%d+%.%d+)") do
+		table.insert(constants, {type = "number", value = tonumber(num)})
+	end
+	
+	-- Booleans
+	for bool in code:gmatch("%f[%w](true)%f[%W]") do
+		table.insert(constants, {type = "boolean", value = true})
+	end
+	
+	for bool in code:gmatch("%f[%w](false)%f[%W]") do
+		table.insert(constants, {type = "boolean", value = false})
+	end
+	
+	self.constants = constants
+	return constants
 end
 
-function Environment.Whitelist(self, Username)  -- METHOD | ExunysDeveloperAimbot:Whitelist(<string> Player Name)
-    assert(self, "EXUNYS_AIMBOT-V3.Whitelist: Missing parameter #1 \"self\" <table>.")
-    assert(Username, "EXUNYS_AIMBOT-V3.Whitelist: Missing parameter #2 \"Username\" <string>.")
-    Username = FixUsername(Username)
-    assert(Username, "EXUNYS_AIMBOT-V3.Whitelist: User "..Username.." couldn't be found.")
-    local Index = tablefind(self.Blacklisted, Username)
-    assert(Index, "EXUNYS_AIMBOT-V3.Whitelist: User "..Username.." is not blacklisted.")
-    tableremove(self.Blacklisted, Index)
+function VMAnalyzer:analyzeControlFlow(code)
+	local flow = {
+		loops = {},
+		conditions = {},
+		jumps = {},
+		calls = {}
+	}
+	
+	-- Detectar loops
+	for loop_type in code:gmatch("(while)") do
+		table.insert(flow.loops, {type = "while"})
+	end
+	for loop_type in code:gmatch("(repeat)") do
+		table.insert(flow.loops, {type = "repeat"})
+	end
+	for loop_type in code:gmatch("(for)") do
+		table.insert(flow.loops, {type = "for"})
+	end
+	
+	-- Detectar condiciones
+	for cond in code:gmatch("(if%s+.-%s+then)") do
+		table.insert(flow.conditions, cond)
+	end
+	
+	-- Detectar saltos (goto, break)
+	for jump in code:gmatch("(goto%s+%w+)") do
+		table.insert(flow.jumps, jump)
+	end
+	
+	-- Detectar llamadas a funciones
+	for call in code:gmatch("(%w+)%s*%(") do
+		if not call:match("^(if|while|for|repeat)$") then
+			table.insert(flow.calls, call)
+		end
+	end
+	
+	self.control_flow = flow
+	return flow
 end
 
-function Environment.GetClosestPlayer()  -- ExunysDeveloperAimbot.GetClosestPlayer(<void>)
-    GetClosestPlayer()
-    local Value = Environment.Locked
-    CancelLock()
-    return Value
+function VMAnalyzer:disassembleVM(code)
+	if config.verbose then
+		print("[VM Analyzer] Iniciando desarme de VM...")
+	end
+	
+	local vm_type, confidence = self:detectVMType(code)
+	print(string.format("[VM Analyzer] Tipo detectado: %s (%.1f%% confianza)", vm_type, confidence * 100))
+	
+	self:extractOpcodes(code)
+	print(string.format("[VM Analyzer] Opcodes encontrados: %d", #self.opcodes))
+	
+	self:extractConstants(code)
+	print(string.format("[VM Analyzer] Constantes encontradas: %d", #self.constants))
+	
+	self:analyzeControlFlow(code)
+	print(string.format("[VM Analyzer] Estructuras de control: %d loops, %d condiciones", 
+		#self.control_flow.loops, #self.control_flow.conditions))
+	
+	return {
+		vm_type = vm_type,
+		confidence = confidence,
+		opcodes = self.opcodes,
+		constants = self.constants,
+		control_flow = self.control_flow
+	}
 end
 
-Environment.Load = Load  -- ExunysDeveloperAimbot.Load()
-setmetatable(Environment, {__call = Load})
-return Environment
+function VMAnalyzer:generateVMMap()
+	local map = {
+		"=== VM STRUCTURE MAP ===\n",
+		string.format("VM Type: %s\n", self.vm_structure.vm_type or "Unknown"),
+		string.format("Confidence: %.1f%%\n\n", (self.vm_structure.confidence or 0) * 100),
+		
+		"=== OPCODES ===\n"
+	}
+	
+	local opcode_counts = {}
+	for _, opcode in ipairs(self.opcodes) do
+		local key = tostring(opcode.value)
+		opcode_counts[key] = (opcode_counts[key] or 0) + 1
+	end
+	
+	for opcode, count in pairs(opcode_counts) do
+		table.insert(map, string.format("  %s: %d occurrences\n", opcode, count))
+	end
+	
+	table.insert(map, "\n=== CONSTANTS ===\n")
+	local const_by_type = {}
+	for _, const in ipairs(self.constants) do
+		const_by_type[const.type] = (const_by_type[const.type] or 0) + 1
+	end
+	
+	for ctype, count in pairs(const_by_type) do
+		table.insert(map, string.format("  %s: %d\n", ctype, count))
+	end
+	
+	table.insert(map, "\n=== CONTROL FLOW ===\n")
+	table.insert(map, string.format("  Loops: %d\n", #self.control_flow.loops))
+	table.insert(map, string.format("  Conditions: %d\n", #self.control_flow.conditions))
+	table.insert(map, string.format("  Jumps: %d\n", #self.control_flow.jumps))
+	table.insert(map, string.format("  Function Calls: %d\n", #self.control_flow.calls))
+	
+	return table.concat(map)
+end
+
+-- ========================================
+-- DEOBFUSCATOR PRINCIPAL
+-- ========================================
+function VMDeobfuscator.new()
+	local self = setmetatable({}, VMDeobfuscator)
+	self.vm_analyzer = VMAnalyzer.new()
+	self.string_decryptor = StringDecryptor
+	self.output = {}
+	return self
+end
+
+function VMDeobfuscator:findEncryptedStrings(code)
+	local encrypted_strings = {}
+	
+	-- Patrón 1: string.char con números
+	for chars in code:gmatch("string%.char%s*%(([%d,%s]+)%)") do
+		local numbers = {}
+		for num in chars:gmatch("%d+") do
+			table.insert(numbers, tonumber(num))
+		end
+		local decoded = self.string_decryptor.charArrayDecode(numbers)
+		if decoded then
+			table.insert(encrypted_strings, {
+				original = "string.char(" .. chars .. ")",
+				decoded = decoded,
+				method = "char_array"
+			})
+		end
+	end
+	
+	-- Patrón 2: Arrays de bytes
+	for array in code:gmatch("%{([%d,%s]+)%}") do
+		if #array > 20 then -- Solo arrays grandes
+			local numbers = {}
+			for num in array:gmatch("%d+") do
+				table.insert(numbers, tonumber(num))
+			end
+			if #numbers > 5 then
+				local decoded = self.string_decryptor.charArrayDecode(numbers)
+				if decoded and decoded:match("[%w%s]+") then
+					table.insert(encrypted_strings, {
+						original = "{" .. array .. "}",
+						decoded = decoded,
+						method = "byte_array"
+					})
+				end
+			end
+		end
+	end
+	
+	-- Patrón 3: Strings con escape hex
+	for hex_string in code:gmatch('"([^"]*\\x%x%x[^"]*)"') do
+		local decoded = hex_string:gsub("\\x(%x%x)", function(hex)
+			return string.char(tonumber(hex, 16))
+		end)
+		if decoded ~= hex_string then
+			table.insert(encrypted_strings, {
+				original = '"' .. hex_string .. '"',
+				decoded = decoded,
+				method = "hex_escape"
+			})
+		end
+	end
+	
+	-- Patrón 4: Funciones de desencriptación personalizadas
+	for var, func in code:gmatch("local%s+(%w+)%s*=%s*function%((.-)%)") do
+		if func:match("bxor") or func:match("byte") or func:match("char") then
+			table.insert(encrypted_strings, {
+				original = var,
+				decoded = "[CUSTOM DECRYPT FUNCTION: " .. var .. "]",
+				method = "custom_function"
+			})
+		end
+	end
+	
+	return encrypted_strings
+end
+
+function VMDeobfuscator:replaceEncryptedStrings(code, encrypted_strings)
+	local replaced_code = code
+	local replacements = 0
+	
+	for _, entry in ipairs(encrypted_strings) do
+		if entry.method ~= "custom_function" then
+			local escaped_original = entry.original:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+			local new_code, count = replaced_code:gsub(escaped_original, '"' .. entry.decoded .. '"')
+			if count > 0 then
+				replaced_code = new_code
+				replacements = replacements + count
+			end
+		end
+	end
+	
+	if config.verbose then
+		print(string.format("[String Decryptor] Reemplazados %d strings", replacements))
+	end
+	
+	return replaced_code, replacements
+end
+
+function VMDeobfuscator:simplifyVM(code)
+	local simplified = code
+	
+	-- Remover llamadas redundantes a VM
+	simplified = simplified:gsub("VM%[%d+%]%s*%(%)%s*;?", "")
+	
+	-- Simplificar accesos a stack
+	simplified = simplified:gsub("Stk%[(%d+)%]", "var_%1")
+	
+	-- Simplificar instrucciones
+	simplified = simplified:gsub("Inst%[(%d+)%]", "inst_%1")
+	
+	-- Remover código muerto
+	simplified = simplified:gsub("if%s+false%s+then.-%s+end", "")
+	simplified = simplified:gsub("while%s+false%s+do.-%s+end", "")
+	
+	return simplified
+end
+
+function VMDeobfuscator:beautify(code)
+	if not config.auto_beautify then
+		return code
+	end
+	
+	local lines = {}
+	local indent = 0
+	
+	for line in code:gmatch("[^\n]+") do
+		local trimmed = line:match("^%s*(.-)%s*$")
+		
+		-- Reducir indentación
+		if trimmed:match("^end") or trimmed:match("^else") or trimmed:match("^elseif") or trimmed:match("^until") then
+			indent = math.max(0, indent - 1)
+		end
+		
+		-- Agregar línea con indentación
+		if trimmed ~= "" then
+			table.insert(lines, string.rep("    ", indent) .. trimmed)
+		end
+		
+		-- Aumentar indentación
+		if trimmed:match("then%s*$") or trimmed:match("do%s*$") or trimmed:match("repeat%s*$") or trimmed:match("function") then
+			indent = indent + 1
+		end
+		
+		-- Reducir después de end
+		if trimmed:match("^end") then
+			indent = math.max(0, indent - 1)
+		end
+	end
+	
+	return table.concat(lines, "\n")
+end
+
+function VMDeobfuscator:deobfuscate(code)
+	if config.verbose then
+		print("\n" .. string.rep("=", 50))
+		print("INICIANDO DEOBFUSCACIÓN AVANZADA")
+		print(string.rep("=", 50))
+	end
+	
+	local start_time = os.clock()
+	local original_length = #code
+	
+	-- 1. Análisis de VM
+	print("\n[1/5] Analizando estructura de VM...")
+	self.vm_analyzer.vm_structure = self.vm_analyzer:disassembleVM(code)
+	
+	-- 2. Encontrar strings encriptados
+	print("\n[2/5] Buscando strings encriptados...")
+	local encrypted_strings = self:findEncryptedStrings(code)
+	print(string.format("[String Decryptor] Encontrados %d strings encriptados", #encrypted_strings))
+	
+	-- 3. Reemplazar strings
+	print("\n[3/5] Desencriptando strings...")
+	code, replacements = self:replaceEncryptedStrings(code, encrypted_strings)
+	
+	-- 4. Simplificar VM
+	print("\n[4/5] Simplificando lógica de VM...")
+	code = self:simplifyVM(code)
+	
+	-- 5. Beautify
+	print("\n[5/5] Mejorando formato...")
+	code = self:beautify(code)
+	
+	local elapsed = os.clock() - start_time
+	local final_length = #code
+	local reduction = ((original_length - final_length) / original_length) * 100
+	
+	-- Generar reporte
+	local report = {
+		vm_type = self.vm_analyzer.vm_structure.vm_type,
+		vm_confidence = self.vm_analyzer.vm_structure.confidence,
+		strings_found = #encrypted_strings,
+		strings_replaced = replacements,
+		opcodes_found = #self.vm_analyzer.opcodes,
+		constants_found = #self.vm_analyzer.constants,
+		original_length = original_length,
+		final_length = final_length,
+		reduction_percent = reduction,
+		time_elapsed = elapsed
+	}
+	
+	if config.verbose then
+		print("\n" .. string.rep("=", 50))
+		print("DEOBFUSCACIÓN COMPLETADA")
+		print(string.rep("=", 50))
+		print(string.format("VM Tipo: %s (%.1f%% confianza)", report.vm_type, report.vm_confidence * 100))
+		print(string.format("Strings desencriptados: %d", report.strings_replaced))
+		print(string.format("Opcodes encontrados: %d", report.opcodes_found))
+		print(string.format("Tiempo: %.2fs", elapsed))
+		print(string.rep("=", 50) .. "\n")
+	end
+	
+	-- Generar VM map
+	local vm_map = ""
+	if config.export_vm_map then
+		vm_map = self.vm_analyzer:generateVMMap()
+	end
+	
+	return {
+		code = code,
+		report = report,
+		vm_map = vm_map,
+		encrypted_strings = encrypted_strings
+	}
+end
+
+-- ========================================
+-- FUNCIONES DE EXPORTACIÓN
+-- ========================================
+function VMDeobfuscator:saveResults(filename, result)
+	-- Guardar código deobfuscado
+	local code_file = filename:gsub("%.lua$", "_deobfuscated.lua")
+	if writefile then
+		writefile(code_file, result.code)
+		print("[Export] Código guardado en: " .. code_file)
+	end
+	
+	-- Guardar VM map
+	if config.export_vm_map and result.vm_map then
+		local map_file = filename:gsub("%.lua$", "_vm_map.txt")
+		if writefile then
+			writefile(map_file, result.vm_map)
+			print("[Export] VM map guardado en: " .. map_file)
+		end
+	end
+	
+	-- Guardar reporte JSON
+	local report_file = filename:gsub("%.lua$", "_report.txt")
+	local report_text = string.format([[
+=== REPORTE DE DEOBFUSCACIÓN ===
+Archivo: %s
+VM Tipo: %s
+Confianza: %.1f%%
+Strings desencriptados: %d
+Opcodes: %d
+Constantes: %d
+Tamaño original: %d bytes
+Tamaño final: %d bytes
+Reducción: %.2f%%
+Tiempo: %.2fs
+]], filename, result.report.vm_type, result.report.vm_confidence * 100,
+	result.report.strings_replaced, result.report.opcodes_found,
+	result.report.constants_found, result.report.original_length,
+	result.report.final_length, result.report.reduction_percent,
+	result.report.time_elapsed)
+	
+	if writefile then
+		writefile(report_file, report_text)
+		print("[Export] Reporte guardado en: " .. report_file)
+	end
+	
+	-- Guardar strings encontrados
+	if #result.encrypted_strings > 0 then
+		local strings_file = filename:gsub("%.lua$", "_strings.txt")
+		local strings_text = {"=== STRINGS ENCRIPTADOS ENCONTRADOS ===\n"}
+		
+		for i, entry in ipairs(result.encrypted_strings) do
+			table.insert(strings_text, string.format("\n[%d] Método: %s\n", i, entry.method))
+			table.insert(strings_text, string.format("Original: %s\n", entry.original:sub(1, 100)))
+			table.insert(strings_text, string.format("Decodificado: %s\n", entry.decoded))
+		end
+		
+		if writefile then
+			writefile(strings_file, table.concat(strings_text))
+			print("[Export] Strings guardados en: " .. strings_file)
+		end
+	end
+end
+
+-- ========================================
+-- INTERFAZ DE USO
+-- ========================================
+local function main()
+	print([[
+╔═══════════════════════════════════════════╗
+║   VM & STRING DEOBFUSCATOR v3.0          ║
+║   Advanced VM Analysis + Decryption       ║
+╚═══════════════════════════════════════════╝
+]])
+	
+	-- Ejemplo de uso
+	local deobfuscator = VMDeobfuscator.new()
+	
+	-- Si estás en un executor de Roblox
+	if game then
+		print("\n[Modo Roblox] Listo para deobfuscar scripts")
+		print("Uso: deobfuscator:deobfuscate(script_code)")
+		
+		-- Exponer globalmente
+		_G.VMDeobfuscator = VMDeobfuscator
+		_G.deobfuscator = deobfuscator
+		
+		print("\nComandos disponibles:")
+		print("  _G.deobfuscator:deobfuscate(code)")
+		print("  _G.deobfuscator:saveResults(filename, result)")
+	else
+		-- Modo standalone
+		print("\n[Modo Standalone]")
+		print("Proporciona el código a deobfuscar...")
+	end
+	
+	return deobfuscator
+end
+
+-- ========================================
+-- EJECUCIÓN
+-- ========================================
+return main()
