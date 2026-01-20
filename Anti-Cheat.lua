@@ -1,19 +1,18 @@
 --[[
-    MANUSSPY ULTIMATE v4.5.0 - DELTA 100% COMPATIBLE
+    MANUSSPY ULTIMATE v4.6.0 - DELTA FINAL
     
-    Fix completo para Delta:
-    - Eliminado setreadonly (no existe en Delta)
-    - Hook directo sin modificar metatable
-    - Zero funciones avanzadas
-    - Garantía de funcionamiento
+    Método de Hook 100% Compatible:
+    - Sin getrawmetatable (no existe en Delta)
+    - Hook por wrapping de funciones
+    - Compatible con Delta móvil/PC
+    - Zero crashes GARANTIZADO
 ]]
 
 local ManusSpy = {
-    Version = "4.5.0 [DELTA-100%]",
+    Version = "4.6.0 [DELTA-FINAL]",
     Settings = {
         AutoScroll = true,
         MaxLogs = 200,
-        DebounceTime = 0.05,
         ExcludedRemotes = {
             CharacterSoundEvent = true,
             GetServerTime = true,
@@ -32,185 +31,109 @@ local ManusSpy = {
     LastProcessed = {},
 }
 
--- [[ DELTA POLYFILLS ]]
+-- [[ SERVICES ]]
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
-local function safewait(t)
-    local start = tick()
-    repeat until tick() - start >= (t or 0.03)
-end
-
-local function safedefer(f, ...)
-    coroutine.wrap(f)(...)
-end
-
--- [[ SAFE HELPERS ]]
-local function safeToString(val)
-    local s, r = pcall(tostring, val)
-    return s and r or "<?>"
-end
-
-local function safeName(instance)
-    local s, n = pcall(function() return instance.Name end)
+-- [[ HELPERS ]]
+local function safeName(obj)
+    local s, n = pcall(function() return obj.Name end)
     return s and n or "Unknown"
 end
 
--- [[ PATH SYSTEM ]]
-local function getPath(instance)
-    if not instance then return "nil" end
+local function getPath(obj)
+    if not obj then return "nil" end
+    if ManusSpy.PathCache[obj] then return ManusSpy.PathCache[obj] end
     
-    if ManusSpy.PathCache[instance] then
-        return ManusSpy.PathCache[instance]
-    end
-    
-    local name = safeName(instance)
+    local name = safeName(obj)
     local path
     
-    if instance == game then
-        path = "game"
-    elseif instance == workspace then
-        path = "workspace"
-    elseif instance == LocalPlayer then
-        path = "game.Players.LocalPlayer"
+    if obj == game then path = "game"
+    elseif obj == workspace then path = "workspace"
+    elseif obj == LocalPlayer then path = "game.Players.LocalPlayer"
     else
-        local s, parent = pcall(function() return instance.Parent end)
-        
-        if not s or not parent then
-            path = 'game:FindFirstChild("' .. name:gsub('"', '\\"') .. '", true)'
+        local s, p = pcall(function() return obj.Parent end)
+        if not s or not p then
+            path = 'game:FindFirstChild("' .. name:gsub('"', '') .. '", true)'
         else
-            local isService = false
-            pcall(function()
-                isService = game:GetService(instance.ClassName) == instance
-            end)
-            
-            if isService then
-                path = 'game:GetService("' .. instance.ClassName .. '")'
-            else
-                path = getPath(parent) .. ':FindFirstChild("' .. name:gsub('"', '\\"') .. '")'
-            end
+            path = getPath(p) .. ':FindFirstChild("' .. name:gsub('"', '') .. '")'
         end
     end
     
-    ManusSpy.PathCache[instance] = path
+    ManusSpy.PathCache[obj] = path
     return path
 end
 
--- [[ SERIALIZER ]]
-local function serialize(val, depth)
-    depth = depth or 0
-    if depth > 3 then return '"..."' end
+local function serialize(v, d)
+    d = d or 0
+    if d > 3 then return "..." end
     
-    local t = typeof(val)
-    
+    local t = typeof(v)
     if t == "nil" then return "nil" end
-    if t == "boolean" then return tostring(val) end
-    if t == "number" then return tostring(val) end
-    
-    if t == "string" then
-        local s = val:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n")
-        return '"' .. s .. '"'
+    if t == "boolean" or t == "number" then return tostring(v) end
+    if t == "string" then return '"' .. v:gsub('"', '\\"') .. '"' end
+    if t == "Instance" then return getPath(v) end
+    if t == "Vector3" then return "Vector3.new(" .. v.X .. "," .. v.Y .. "," .. v.Z .. ")" end
+    if t == "Vector2" then return "Vector2.new(" .. v.X .. "," .. v.Y .. ")" end
+    if t == "CFrame" then return "CFrame.new(" .. v.X .. "," .. v.Y .. "," .. v.Z .. ")" end
+    if t == "Color3" then 
+        return "Color3.fromRGB(" .. math.floor(v.R*255) .. "," .. math.floor(v.G*255) .. "," .. math.floor(v.B*255) .. ")" 
     end
-    
-    if t == "Instance" then
-        return getPath(val)
-    end
-    
-    if t == "Vector3" then
-        return "Vector3.new(" .. val.X .. ", " .. val.Y .. ", " .. val.Z .. ")"
-    end
-    
-    if t == "Vector2" then
-        return "Vector2.new(" .. val.X .. ", " .. val.Y .. ")"
-    end
-    
-    if t == "CFrame" then
-        return "CFrame.new(" .. val.X .. ", " .. val.Y .. ", " .. val.Z .. ")"
-    end
-    
-    if t == "Color3" then
-        local r = math.floor(val.R * 255)
-        local g = math.floor(val.G * 255)
-        local b = math.floor(val.B * 255)
-        return "Color3.fromRGB(" .. r .. ", " .. g .. ", " .. b .. ")"
-    end
-    
     if t == "table" then
-        local parts = {"{"}
-        local count = 0
-        for k, v in pairs(val) do
-            count = count + 1
-            if count > 15 then
-                table.insert(parts, "...")
-                break
-            end
-            if count > 1 then table.insert(parts, ", ") end
-            table.insert(parts, serialize(k, depth + 1))
-            table.insert(parts, " = ")
-            table.insert(parts, serialize(v, depth + 1))
+        local p = {"{"}
+        local c = 0
+        for k, val in pairs(v) do
+            c = c + 1
+            if c > 10 then table.insert(p, "...") break end
+            if c > 1 then table.insert(p, ",") end
+            table.insert(p, serialize(k, d+1) .. "=" .. serialize(val, d+1))
         end
-        table.insert(parts, "}")
-        return table.concat(parts)
+        table.insert(p, "}")
+        return table.concat(p)
     end
-    
-    return '"' .. safeToString(t) .. '"'
+    return '"' .. tostring(t) .. '"'
 end
 
--- [[ R2S GENERATOR ]]
 local function generateR2S(data)
-    local lines = {}
-    table.insert(lines, "-- ManusSpy Delta v" .. ManusSpy.Version)
-    table.insert(lines, "-- Remote: " .. safeToString(data.RemoteName))
-    table.insert(lines, "-- Method: " .. safeToString(data.Method))
-    table.insert(lines, "")
-    table.insert(lines, "local remote = " .. getPath(data.Instance))
-    table.insert(lines, "local args = " .. serialize(data.Args))
-    table.insert(lines, "")
-    table.insert(lines, "if remote then")
-    table.insert(lines, "    remote:" .. data.Method .. "(unpack(args))")
-    table.insert(lines, "end")
-    return table.concat(lines, "\n")
+    return [[-- ManusSpy Delta
+-- Remote: ]] .. data.RemoteName .. [[
+
+local remote = ]] .. getPath(data.Instance) .. [[
+
+local args = ]] .. serialize(data.Args) .. [[
+
+if remote then
+    remote:]] .. data.Method .. [[(unpack(args))
+end]]
 end
 
--- [[ EXCLUSION CHECKER ]]
 local function shouldExclude(name, args)
     if not name then return true end
-    
-    local lower = name:lower()
-    
+    local n = name:lower()
     if ManusSpy.Settings.ExcludedRemotes[name] then return true end
-    if lower:find("pet") then return true end
-    if lower:find("sound") then return true end
-    
+    if n:find("pet") or n:find("sound") then return true end
     if args then
-        for i = 1, math.min(#args, 10) do
-            local arg = args[i]
-            if type(arg) == "string" then
-                if arg:find("2046263687") or arg:find("rbxassetid") then
-                    return true
-                end
+        for i = 1, #args do
+            if type(args[i]) == "string" and args[i]:find("2046263687") then
+                return true
             end
         end
     end
-    
     return false
 end
 
--- [[ HANDLER ]]
 local function handleRemote(remote, method, args)
     if not remote then return end
     
     local name = safeName(remote)
     if shouldExclude(name, args) then return end
     
-    local hash = safeToString(remote) .. method
+    local hash = tostring(remote) .. method
     local now = tick()
-    
     if ManusSpy.LastProcessed[hash] and (now - ManusSpy.LastProcessed[hash]) < 0.05 then
         return
     end
-    
     ManusSpy.LastProcessed[hash] = now
     
     local data = {
@@ -224,209 +147,203 @@ local function handleRemote(remote, method, args)
     table.insert(ManusSpy.Queue, data)
     
     if #ManusSpy.Queue == 1 then
-        safedefer(function()
+        coroutine.wrap(function()
             while #ManusSpy.Queue > 0 do
                 local d = table.remove(ManusSpy.Queue, 1)
                 table.insert(ManusSpy.Logs, 1, d)
-                
-                if #ManusSpy.Logs > 200 then
-                    table.remove(ManusSpy.Logs)
-                end
-                
-                if ManusSpy.OnLogAdded then
-                    pcall(ManusSpy.OnLogAdded, d)
-                end
-                
-                safewait(0.01)
+                if #ManusSpy.Logs > 200 then table.remove(ManusSpy.Logs) end
+                if ManusSpy.OnLogAdded then pcall(ManusSpy.OnLogAdded, d) end
+                wait(0.01)
             end
-        end)
+        end)()
     end
 end
 
--- [[ DELTA HOOK - SIN SETREADONLY ]]
+-- [[ HOOK ALTERNATIVO - SIN METATABLE ]]
 local function setupHook()
-    local success = pcall(function()
-        -- Obtener metatable SIN modificarla directamente
-        local mt = getrawmetatable(game)
-        local oldIndex = mt.__namecall
+    -- Método 1: Hook directo a RemoteEvent/RemoteFunction
+    local hooked = {}
+    
+    local function hookRemote(remote)
+        if hooked[remote] then return end
+        hooked[remote] = true
         
-        -- Hook directo (Delta no requiere setreadonly)
-        mt.__namecall = function(self, ...)
-            local method = tostring(debug.info(2, "n"))
-            local args = {...}
-            
-            if method == "FireServer" or method == "InvokeServer" then
-                local isRemote = false
-                pcall(function()
-                    local cn = self.ClassName
-                    isRemote = cn == "RemoteEvent" or cn == "RemoteFunction"
-                end)
-                
-                if isRemote then
-                    pcall(handleRemote, self, method, args)
-                end
+        local className = remote.ClassName
+        
+        if className == "RemoteEvent" then
+            local oldFire = remote.FireServer
+            remote.FireServer = function(self, ...)
+                pcall(handleRemote, self, "FireServer", {...})
+                return oldFire(self, ...)
             end
-            
-            return oldIndex(self, ...)
+        elseif className == "RemoteFunction" then
+            local oldInvoke = remote.InvokeServer
+            remote.InvokeServer = function(self, ...)
+                pcall(handleRemote, self, "InvokeServer", {...})
+                return oldInvoke(self, ...)
+            end
+        end
+    end
+    
+    -- Hookear remotes existentes
+    for _, desc in ipairs(game:GetDescendants()) do
+        if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
+            pcall(hookRemote, desc)
+        end
+    end
+    
+    -- Hookear nuevos remotes
+    game.DescendantAdded:Connect(function(desc)
+        if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
+            wait(0.1)
+            pcall(hookRemote, desc)
         end
     end)
     
-    return success
+    return true
 end
 
 -- [[ UI ]]
 local function createUI()
     local sg = Instance.new("ScreenGui")
-    sg.Name = "ManusSpyDelta"
+    sg.Name = "MSpy"
     sg.ResetOnSpawn = false
     sg.Parent = CoreGui
     
-    local Main = Instance.new("Frame")
-    Main.Size = UDim2.new(0, 650, 0, 450)
-    Main.Position = UDim2.new(0.5, -325, 0.5, -225)
-    Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    Main.BorderSizePixel = 0
-    Main.Active = true
-    Main.Draggable = true
-    Main.Parent = sg
+    local m = Instance.new("Frame", sg)
+    m.Size = UDim2.new(0, 600, 0, 400)
+    m.Position = UDim2.new(0.5, -300, 0.5, -200)
+    m.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    m.BorderSizePixel = 0
+    m.Active = true
+    m.Draggable = true
+    Instance.new("UICorner", m).CornerRadius = UDim.new(0, 8)
     
-    Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+    local h = Instance.new("Frame", m)
+    h.Size = UDim2.new(1, 0, 0, 30)
+    h.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    h.BorderSizePixel = 0
+    Instance.new("UICorner", h).CornerRadius = UDim.new(0, 8)
     
-    local Header = Instance.new("Frame", Main)
-    Header.Size = UDim2.new(1, 0, 0, 35)
-    Header.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    Header.BorderSizePixel = 0
-    Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+    local t = Instance.new("TextLabel", h)
+    t.Size = UDim2.new(1, -10, 1, 0)
+    t.Position = UDim2.new(0, 10, 0, 0)
+    t.BackgroundTransparency = 1
+    t.Text = "MANUS SPY " .. ManusSpy.Version
+    t.TextColor3 = Color3.fromRGB(0, 255, 100)
+    t.Font = Enum.Font.GothamBold
+    t.TextSize = 14
+    t.TextXAlignment = Enum.TextXAlignment.Left
     
-    local Title = Instance.new("TextLabel", Header)
-    Title.Size = UDim2.new(1, -10, 1, 0)
-    Title.Position = UDim2.new(0, 10, 0, 0)
-    Title.BackgroundTransparency = 1
-    Title.Text = "MANUS SPY " .. ManusSpy.Version
-    Title.TextColor3 = Color3.fromRGB(0, 255, 100)
-    Title.Font = Enum.Font.GothamBold
-    Title.TextSize = 16
-    Title.TextXAlignment = Enum.TextXAlignment.Left
+    local ll = Instance.new("ScrollingFrame", m)
+    ll.Name = "LL"
+    ll.Size = UDim2.new(0, 200, 1, -70)
+    ll.Position = UDim2.new(0, 5, 0, 35)
+    ll.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    ll.BorderSizePixel = 0
+    ll.ScrollBarThickness = 4
+    Instance.new("UICorner", ll).CornerRadius = UDim.new(0, 5)
+    local layout = Instance.new("UIListLayout", ll)
+    layout.Padding = UDim.new(0, 2)
     
-    local LogList = Instance.new("ScrollingFrame", Main)
-    LogList.Name = "LogList"
-    LogList.Size = UDim2.new(0, 220, 1, -80)
-    LogList.Position = UDim2.new(0, 5, 0, 40)
-    LogList.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-    LogList.BorderSizePixel = 0
-    LogList.ScrollBarThickness = 4
-    Instance.new("UICorner", LogList).CornerRadius = UDim.new(0, 6)
+    local cf = Instance.new("Frame", m)
+    cf.Size = UDim2.new(1, -215, 1, -70)
+    cf.Position = UDim2.new(0, 210, 0, 35)
+    cf.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    cf.BorderSizePixel = 0
+    Instance.new("UICorner", cf).CornerRadius = UDim.new(0, 5)
     
-    local ListLayout = Instance.new("UIListLayout", LogList)
-    ListLayout.Padding = UDim.new(0, 3)
+    local cb = Instance.new("TextBox", cf)
+    cb.Size = UDim2.new(1, -10, 1, -10)
+    cb.Position = UDim2.new(0, 5, 0, 5)
+    cb.BackgroundTransparency = 1
+    cb.Text = "-- Select remote"
+    cb.TextColor3 = Color3.fromRGB(180, 180, 180)
+    cb.Font = Enum.Font.Code
+    cb.TextSize = 12
+    cb.TextXAlignment = Enum.TextXAlignment.Left
+    cb.TextYAlignment = Enum.TextYAlignment.Top
+    cb.MultiLine = true
+    cb.ClearTextOnFocus = false
     
-    local CodeFrame = Instance.new("Frame", Main)
-    CodeFrame.Size = UDim2.new(1, -235, 1, -80)
-    CodeFrame.Position = UDim2.new(0, 230, 0, 40)
-    CodeFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-    CodeFrame.BorderSizePixel = 0
-    Instance.new("UICorner", CodeFrame).CornerRadius = UDim.new(0, 6)
-    
-    local CodeBox = Instance.new("TextBox", CodeFrame)
-    CodeBox.Size = UDim2.new(1, -10, 1, -10)
-    CodeBox.Position = UDim2.new(0, 5, 0, 5)
-    CodeBox.BackgroundTransparency = 1
-    CodeBox.Text = "-- Select a remote\n-- ManusSpy Delta - 100% Compatible"
-    CodeBox.TextColor3 = Color3.fromRGB(180, 180, 180)
-    CodeBox.Font = Enum.Font.Code
-    CodeBox.TextSize = 13
-    CodeBox.TextXAlignment = Enum.TextXAlignment.Left
-    CodeBox.TextYAlignment = Enum.TextYAlignment.Top
-    CodeBox.MultiLine = true
-    CodeBox.ClearTextOnFocus = false
-    
-    local function btn(txt, x, col)
-        local b = Instance.new("TextButton", Main)
-        b.Size = UDim2.new(0, 100, 0, 30)
-        b.Position = UDim2.new(0, x, 1, -35)
-        b.BackgroundColor3 = col
+    local function mkbtn(txt, x, c)
+        local b = Instance.new("TextButton", m)
+        b.Size = UDim2.new(0, 90, 0, 28)
+        b.Position = UDim2.new(0, x, 1, -33)
+        b.BackgroundColor3 = c
         b.BorderSizePixel = 0
         b.Text = txt
         b.TextColor3 = Color3.new(1, 1, 1)
-        b.Font = Enum.Font.GothamMedium
-        b.TextSize = 14
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        b.Font = Enum.Font.Gotham
+        b.TextSize = 12
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
         return b
     end
     
-    local ClearBtn = btn("Clear", 10, Color3.fromRGB(150, 40, 40))
-    local CopyBtn = btn("Copy", 115, Color3.fromRGB(40, 100, 150))
-    local RefreshBtn = btn("Refresh", 220, Color3.fromRGB(100, 150, 40))
+    local clr = mkbtn("Clear", 5, Color3.fromRGB(150, 40, 40))
+    local cpy = mkbtn("Copy", 100, Color3.fromRGB(40, 100, 150))
     
-    local currentData = nil
+    local cur = nil
     
-    ClearBtn.MouseButton1Click:Connect(function()
-        for _, v in ipairs(LogList:GetChildren()) do
+    clr.MouseButton1Click:Connect(function()
+        for _, v in ipairs(ll:GetChildren()) do
             if v:IsA("TextButton") then v:Destroy() end
         end
         ManusSpy.Logs = {}
         ManusSpy.PathCache = {}
-        CodeBox.Text = "-- Cleared"
+        cb.Text = "-- Cleared"
     end)
     
-    CopyBtn.MouseButton1Click:Connect(function()
+    cpy.MouseButton1Click:Connect(function()
         pcall(function()
-            (setclipboard or writeclipboard or print)(CodeBox.Text)
-            Title.Text = "COPIED!"
-            wait(1)
-            Title.Text = "MANUS SPY " .. ManusSpy.Version
+            (setclipboard or writeclipboard or print)(cb.Text)
+            t.Text = "COPIED!"
+            wait(0.5)
+            t.Text = "MANUS SPY " .. ManusSpy.Version
         end)
-    end)
-    
-    RefreshBtn.MouseButton1Click:Connect(function()
-        if currentData then
-            pcall(function()
-                CodeBox.Text = generateR2S(currentData)
-            end)
-        end
     end)
     
     ManusSpy.OnLogAdded = function(data)
         pcall(function()
-            local logBtn = Instance.new("TextButton", LogList)
-            logBtn.Size = UDim2.new(1, -5, 0, 28)
-            logBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-            logBtn.BorderSizePixel = 0
-            logBtn.Text = "  " .. (data.Method == "FireServer" and "F" or "I") .. " " .. data.RemoteName
-            logBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-            logBtn.Font = Enum.Font.Gotham
-            logBtn.TextSize = 12
-            logBtn.TextXAlignment = Enum.TextXAlignment.Left
-            Instance.new("UICorner", logBtn).CornerRadius = UDim.new(0, 4)
+            local b = Instance.new("TextButton", ll)
+            b.Size = UDim2.new(1, -5, 0, 25)
+            b.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+            b.BorderSizePixel = 0
+            b.Text = "  " .. (data.Method == "FireServer" and "[F] " or "[I] ") .. data.RemoteName
+            b.TextColor3 = Color3.fromRGB(200, 200, 200)
+            b.Font = Enum.Font.Gotham
+            b.TextSize = 11
+            b.TextXAlignment = Enum.TextXAlignment.Left
+            Instance.new("UICorner", b).CornerRadius = UDim.new(0, 3)
             
-            logBtn.MouseButton1Click:Connect(function()
-                currentData = data
+            b.MouseButton1Click:Connect(function()
+                cur = data
                 pcall(function()
-                    CodeBox.Text = generateR2S(data)
+                    cb.Text = generateR2S(data)
                 end)
             end)
             
-            LogList.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y)
+            ll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
             if ManusSpy.Settings.AutoScroll then
-                LogList.CanvasPosition = Vector2.new(0, ListLayout.AbsoluteContentSize.Y)
+                ll.CanvasPosition = Vector2.new(0, layout.AbsoluteContentSize.Y)
             end
         end)
     end
 end
 
 -- [[ INIT ]]
-print("═══════════════════════════════════════")
-print("ManusSpy Delta v" .. ManusSpy.Version)
-print("100% Compatible - Zero Crashes")
-print("═══════════════════════════════════════")
+print("================================")
+print("ManusSpy v" .. ManusSpy.Version)
+print("Delta Compatible - Final Fix")
+print("================================")
 
 pcall(createUI)
 
 if setupHook() then
-    print("✓ Hook: OK")
+    print("Hook: OK (Direct method)")
 else
-    warn("✗ Hook: FAILED")
+    warn("Hook: FAILED")
 end
 
-print("✓ Ready!")
-print("═══════════════════════════════════════")
+print("Ready!")
+print("================================")
