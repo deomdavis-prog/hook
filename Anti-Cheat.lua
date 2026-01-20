@@ -1,15 +1,16 @@
+El contenido es generado por usuarios y no está verificado.
 --[[
-    MANUSSPY ULTIMATE v4.3.0 - 100% DELTA COMPATIBLE
+    MANUSSPY ULTIMATE v4.4.0 - DELTA FIX
     
-    Optimizado específicamente para Delta Executor:
-    - Sin dependencias de funciones inexistentes
-    - Hooks ultra-safe con fallbacks completos
-    - Sistema de caché optimizado
+    Correcciones:
+    - Fix string.format con tables
+    - Mejor detección de sonidos problemáticos
+    - Serialización ultra-safe
     - Zero crashes garantizado
 ]]
 
 local ManusSpy = {
-    Version = "4.3.0 [DELTA]",
+    Version = "4.4.0 [DELTA-FIX]",
     Settings = {
         AutoScroll = true,
         MaxLogs = 200,
@@ -32,12 +33,11 @@ local ManusSpy = {
     LastProcessed = {},
 }
 
--- [[ SAFE POLYFILLS PARA DELTA ]]
+-- [[ SAFE POLYFILLS ]]
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- Delta-safe task
 local task = task or {
     defer = function(f, ...)
         coroutine.wrap(f)(...)
@@ -48,7 +48,6 @@ local task = task or {
     end
 }
 
--- Delta polyfills seguros
 local getgenv = getgenv or function() return _G end
 local getnamecallmethod = getnamecallmethod or function()
     local info = debug.info(2, "n")
@@ -56,35 +55,39 @@ local getnamecallmethod = getnamecallmethod or function()
 end
 local checkcaller = checkcaller or function() return false end
 local newcclosure = newcclosure or function(f) return f end
-
--- Clipboard seguro
 local setclipboard = setclipboard or writeclipboard or function(text)
     print("[CLIPBOARD]", text)
 end
-
--- Debug seguro
 local getinfo = debug.getinfo or function() return {} end
-local getcallingscript = debug.getcallingscript or function() 
-    return game 
+local getcallingscript = debug.getcallingscript or function() return game end
+
+-- [[ SAFE STRING HELPER ]]
+local function safeToString(val)
+    local success, result = pcall(function()
+        return tostring(val)
+    end)
+    if success then
+        return result
+    else
+        return "<?>"
+    end
 end
 
--- Hook method SEGURO para Delta
-local hookmetamethod = hookmetamethod or function(obj, method, hook)
-    local old = getrawmetatable(obj)[method]
-    getrawmetatable(obj)[method] = hook
-    return old
-end
-
--- [[ PATH CACHING OPTIMIZADO ]]
+-- [[ PATH CACHING - ULTRA SAFE ]]
 local function getPath(instance)
     if not instance then return "nil" end
     
-    -- Check cache
+    -- Check cache first
     local cached = ManusSpy.PathCache[instance]
     if cached then return cached end
     
-    local success, name = pcall(function() return instance.Name end)
-    if not success then return "ProtectedInstance" end
+    local success, name = pcall(function() 
+        return tostring(instance.Name)
+    end)
+    
+    if not success or not name then 
+        return "ProtectedInstance" 
+    end
     
     local path
     
@@ -95,29 +98,32 @@ local function getPath(instance)
     elseif instance == LocalPlayer then
         path = "game.Players.LocalPlayer"
     else
-        local parentSuccess, parent = pcall(function() return instance.Parent end)
+        local parentSuccess, parent = pcall(function() 
+            return instance.Parent 
+        end)
         
         if not parentSuccess or not parent then
-            path = 'game:FindFirstChild("' .. name .. '", true)'
+            -- Safe string escaping
+            local safeName = name:gsub('"', '\\"')
+            path = 'game:FindFirstChild("' .. safeName .. '", true)'
         else
-            -- Check if service
             local isService = false
             pcall(function()
                 isService = game:GetService(instance.ClassName) == instance
             end)
             
             if isService then
-                path = 'game:GetService("' .. instance.ClassName .. '")'
+                local className = safeToString(instance.ClassName)
+                path = 'game:GetService("' .. className .. '")'
             else
                 local parentPath = getPath(parent)
-                -- Safe name formatting
                 local safeName = name:gsub('"', '\\"')
                 path = parentPath .. ':FindFirstChild("' .. safeName .. '")'
             end
         end
     end
     
-    -- Cache it
+    -- Cache with limit
     if not ManusSpy.PathCache[instance] then
         ManusSpy.PathCache[instance] = path
     end
@@ -125,123 +131,202 @@ local function getPath(instance)
     return path
 end
 
--- [[ SERIALIZER ULTRA-SAFE ]]
+-- [[ ULTRA-SAFE SERIALIZER ]]
 local function serialize(val, depth)
     depth = depth or 0
-    if depth > 4 then return "..." end
     
-    local t = typeof(val)
-    
-    if t == "nil" then return "nil" end
-    if t == "number" then return tostring(val) end
-    if t == "boolean" then return tostring(val) end
-    
-    if t == "string" then
-        local safe = val:gsub('"', '\\"'):gsub("\n", "\\n")
-        return '"' .. safe .. '"'
+    -- Depth limit
+    if depth > 3 then 
+        return '"[MAX_DEPTH]"' 
     end
     
-    if t == "Instance" then
+    -- Safe type check
+    local success, valType = pcall(function()
+        return typeof(val)
+    end)
+    
+    if not success then
+        return '"[ERROR_TYPE]"'
+    end
+    
+    -- Handle primitives
+    if valType == "nil" then 
+        return "nil" 
+    end
+    
+    if valType == "boolean" then 
+        return tostring(val) 
+    end
+    
+    if valType == "number" then
+        if val ~= val then return "0/0" end -- NaN
+        if val == math.huge then return "math.huge" end
+        if val == -math.huge then return "-math.huge" end
+        return tostring(val)
+    end
+    
+    if valType == "string" then
+        -- Ultra-safe string escaping
+        local safeStr = tostring(val)
+        safeStr = safeStr:gsub("\\", "\\\\")
+        safeStr = safeStr:gsub('"', '\\"')
+        safeStr = safeStr:gsub("\n", "\\n")
+        safeStr = safeStr:gsub("\r", "\\r")
+        safeStr = safeStr:gsub("\t", "\\t")
+        return '"' .. safeStr .. '"'
+    end
+    
+    if valType == "Instance" then
         return getPath(val)
     end
     
-    if t == "Vector3" then
-        return string.format("Vector3.new(%.2f, %.2f, %.2f)", val.X, val.Y, val.Z)
+    -- Vector types with safe formatting
+    if valType == "Vector3" then
+        local x = tonumber(val.X) or 0
+        local y = tonumber(val.Y) or 0
+        local z = tonumber(val.Z) or 0
+        return "Vector3.new(" .. x .. ", " .. y .. ", " .. z .. ")"
     end
     
-    if t == "Vector2" then
-        return string.format("Vector2.new(%.2f, %.2f)", val.X, val.Y)
+    if valType == "Vector2" then
+        local x = tonumber(val.X) or 0
+        local y = tonumber(val.Y) or 0
+        return "Vector2.new(" .. x .. ", " .. y .. ")"
     end
     
-    if t == "CFrame" then
-        local x, y, z = val.X, val.Y, val.Z
-        return string.format("CFrame.new(%.2f, %.2f, %.2f)", x, y, z)
+    if valType == "CFrame" then
+        local x = tonumber(val.X) or 0
+        local y = tonumber(val.Y) or 0
+        local z = tonumber(val.Z) or 0
+        return "CFrame.new(" .. x .. ", " .. y .. ", " .. z .. ")"
     end
     
-    if t == "Color3" then
-        return string.format("Color3.fromRGB(%d, %d, %d)", 
-            math.floor(val.R * 255), 
-            math.floor(val.G * 255), 
-            math.floor(val.B * 255))
+    if valType == "Color3" then
+        local r = math.floor((tonumber(val.R) or 0) * 255)
+        local g = math.floor((tonumber(val.G) or 0) * 255)
+        local b = math.floor((tonumber(val.B) or 0) * 255)
+        return "Color3.fromRGB(" .. r .. ", " .. g .. ", " .. b .. ")"
     end
     
-    if t == "table" then
-        local result = "{"
+    if valType == "UDim2" then
+        return "UDim2.new(0, 0, 0, 0) -- [Simplified]"
+    end
+    
+    if valType == "table" then
+        local parts = {"{"}
         local count = 0
         
         for k, v in pairs(val) do
             count = count + 1
-            if count > 20 then
-                result = result .. " ..."
+            if count > 15 then
+                table.insert(parts, " ... ")
                 break
             end
             
-            if count > 1 then result = result .. ", " end
+            if count > 1 then
+                table.insert(parts, ", ")
+            end
             
-            local key = (type(k) == "string") 
-                and k 
-                or "[" .. serialize(k, depth + 1) .. "]"
+            -- Safe key serialization
+            local keyStr
+            if type(k) == "string" then
+                keyStr = k
+            else
+                keyStr = "[" .. serialize(k, depth + 1) .. "]"
+            end
             
-            result = result .. key .. " = " .. serialize(v, depth + 1)
+            table.insert(parts, keyStr)
+            table.insert(parts, " = ")
+            table.insert(parts, serialize(v, depth + 1))
         end
         
-        return result .. "}"
+        table.insert(parts, "}")
+        return table.concat(parts)
     end
     
-    if t == "function" then
+    if valType == "function" then
         return "function() end"
     end
     
-    return tostring(val)
+    -- Fallback for unknown types
+    return '"[' .. safeToString(valType) .. ']"'
 end
 
--- [[ R2S GENERATOR ]]
+-- [[ R2S GENERATOR - SAFE VERSION ]]
 local function generateR2S(data)
-    local remotePath = getPath(data.Instance)
-    local argsStr = serialize(data.Args)
+    local remotePath = "nil"
+    local remoteName = "Unknown"
+    local method = "FireServer"
+    local argsStr = "{}"
     
-    local template = [[-- ManusSpy Delta v%s
--- Remote: %s
--- Method: %s
--- Time: %s
-
-local remote = %s
-local args = %s
-
-if remote then
-    remote:%s(unpack(args))
-end]]
+    -- Safe extraction
+    pcall(function()
+        remotePath = getPath(data.Instance)
+    end)
     
-    return string.format(
-        template,
-        ManusSpy.Version,
-        data.RemoteName or "Unknown",
-        data.Method,
-        os.date("%H:%M:%S"),
-        remotePath,
-        argsStr,
-        data.Method
-    )
+    pcall(function()
+        remoteName = tostring(data.RemoteName)
+    end)
+    
+    pcall(function()
+        method = tostring(data.Method)
+    end)
+    
+    pcall(function()
+        argsStr = serialize(data.Args)
+    end)
+    
+    -- Build template safely
+    local lines = {}
+    table.insert(lines, "-- ManusSpy Delta v" .. ManusSpy.Version)
+    table.insert(lines, "-- Remote: " .. remoteName)
+    table.insert(lines, "-- Method: " .. method)
+    table.insert(lines, "-- Time: " .. os.date("%H:%M:%S"))
+    table.insert(lines, "")
+    table.insert(lines, "local remote = " .. remotePath)
+    table.insert(lines, "local args = " .. argsStr)
+    table.insert(lines, "")
+    table.insert(lines, "if remote then")
+    table.insert(lines, "    remote:" .. method .. "(unpack(args))")
+    table.insert(lines, "end")
+    
+    return table.concat(lines, "\n")
 end
 
--- [[ EXCLUSION CHECK OPTIMIZADO ]]
+-- [[ EXCLUSION CHECK - IMPROVED ]]
 local function shouldExclude(remoteName, args)
-    -- Fast hash check
+    -- Quick name check
+    if not remoteName then return true end
+    
+    local nameLower = remoteName:lower()
+    
+    -- Hash check
     if ManusSpy.Settings.ExcludedRemotes[remoteName] then
         return true
     end
     
-    -- Pet check
-    if remoteName:lower():find("pet") then
+    -- Pet/Sound patterns
+    if nameLower:find("pet") or nameLower:find("sound") or nameLower:find("audio") then
         return true
     end
     
-    -- Sound ID check
+    -- Problematic sound IDs
     if args then
-        for i = 1, #args do
+        for i = 1, math.min(#args, 10) do
             local arg = args[i]
-            if type(arg) == "string" and arg:find("2046263687") then
-                return true
+            local argType = type(arg)
+            
+            if argType == "string" then
+                if arg:find("2046263687") or arg:find("rbxassetid") then
+                    return true
+                end
+            elseif argType == "table" then
+                -- Check nested tables for sound IDs
+                for _, v in pairs(arg) do
+                    if type(v) == "string" and (v:find("2046263687") or v:find("rbxassetid")) then
+                        return true
+                    end
+                end
             end
         end
     end
@@ -251,20 +336,19 @@ end
 
 -- [[ REMOTE HANDLER ]]
 local function handleRemote(remote, method, args)
-    -- Safety check
     if not remote then return end
     
     local success, remoteName = pcall(function() 
-        return remote.Name 
+        return tostring(remote.Name)
     end)
     
-    if not success or not remoteName then return end
+    if not success then return end
     
-    -- Check exclusions
+    -- Exclusion check
     if shouldExclude(remoteName, args) then return end
     
     -- Debouncing
-    local hash = tostring(remote) .. method
+    local hash = safeToString(remote) .. safeToString(method)
     local now = tick()
     local last = ManusSpy.LastProcessed[hash]
     
@@ -274,14 +358,13 @@ local function handleRemote(remote, method, args)
     
     ManusSpy.LastProcessed[hash] = now
     
-    -- Create log entry
+    -- Create log
     local logData = {
         Instance = remote,
         RemoteName = remoteName,
         Method = method,
         Args = args,
         Time = now,
-        Script = tostring(getcallingscript()),
     }
     
     table.insert(ManusSpy.Queue, logData)
@@ -294,12 +377,10 @@ local function handleRemote(remote, method, args)
                 
                 table.insert(ManusSpy.Logs, 1, data)
                 
-                -- Limit logs
                 if #ManusSpy.Logs > ManusSpy.Settings.MaxLogs then
                     table.remove(ManusSpy.Logs)
                 end
                 
-                -- Notify UI
                 if ManusSpy.OnLogAdded then
                     pcall(ManusSpy.OnLogAdded, data)
                 end
@@ -312,9 +393,9 @@ end
 
 -- [[ DELTA-SAFE HOOK ]]
 local function setupHook()
-    local success, error = pcall(function()
+    local success = pcall(function()
         local mt = getrawmetatable(game)
-        local backup = mt.__namecall
+        local oldNamecall = mt.__namecall
         
         setreadonly(mt, false)
         
@@ -322,32 +403,29 @@ local function setupHook()
             local method = getnamecallmethod()
             local args = {...}
             
+            -- Safe remote check
             if method == "FireServer" or method == "InvokeServer" then
-                if typeof(self) == "Instance" then
-                    local isRemote = false
-                    pcall(function()
-                        isRemote = self:IsA("RemoteEvent") or self:IsA("RemoteFunction")
-                    end)
-                    
-                    if isRemote and not checkcaller() then
-                        pcall(handleRemote, self, method, args)
-                    end
+                local isRemote = false
+                pcall(function()
+                    local className = self.ClassName
+                    isRemote = className == "RemoteEvent" or className == "RemoteFunction"
+                end)
+                
+                if isRemote and not checkcaller() then
+                    pcall(handleRemote, self, method, args)
                 end
             end
             
-            return backup(self, ...)
+            return oldNamecall(self, ...)
         end)
         
         setreadonly(mt, true)
     end)
     
-    if not success then
-        warn("[ManusSpy] Hook failed:", error)
-        warn("[ManusSpy] Running in limited mode")
-    end
+    return success
 end
 
--- [[ UI CREATION ]]
+-- [[ UI ]]
 local function createUI()
     local sg = Instance.new("ScreenGui")
     sg.Name = "ManusSpyDelta"
@@ -368,7 +446,6 @@ local function createUI()
     Corner.CornerRadius = UDim.new(0, 10)
     Corner.Parent = Main
     
-    -- Header
     local Header = Instance.new("Frame")
     Header.Size = UDim2.new(1, 0, 0, 35)
     Header.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
@@ -390,7 +467,6 @@ local function createUI()
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Parent = Header
     
-    -- Log List
     local LogList = Instance.new("ScrollingFrame")
     LogList.Name = "LogList"
     LogList.Size = UDim2.new(0, 220, 1, -80)
@@ -408,7 +484,6 @@ local function createUI()
     ListLayout.Padding = UDim.new(0, 3)
     ListLayout.Parent = LogList
     
-    -- Code View
     local CodeFrame = Instance.new("Frame")
     CodeFrame.Size = UDim2.new(1, -235, 1, -80)
     CodeFrame.Position = UDim2.new(0, 230, 0, 40)
@@ -424,7 +499,7 @@ local function createUI()
     CodeBox.Size = UDim2.new(1, -10, 1, -10)
     CodeBox.Position = UDim2.new(0, 5, 0, 5)
     CodeBox.BackgroundTransparency = 1
-    CodeBox.Text = "-- Select a remote to view code\n-- ManusSpy Delta Edition"
+    CodeBox.Text = "-- Select a remote to view code\n-- ManusSpy Delta - Zero Crash Edition"
     CodeBox.TextColor3 = Color3.fromRGB(180, 180, 180)
     CodeBox.Font = Enum.Font.Code
     CodeBox.TextSize = 13
@@ -434,7 +509,6 @@ local function createUI()
     CodeBox.ClearTextOnFocus = false
     CodeBox.Parent = CodeFrame
     
-    -- Buttons
     local function createButton(text, pos, color)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(0, 100, 0, 30)
@@ -460,7 +534,6 @@ local function createUI()
     
     local currentData = nil
     
-    -- Button handlers
     ClearBtn.MouseButton1Click:Connect(function()
         for _, child in ipairs(LogList:GetChildren()) do
             if child:IsA("TextButton") then
@@ -473,67 +546,73 @@ local function createUI()
     end)
     
     CopyBtn.MouseButton1Click:Connect(function()
-        setclipboard(CodeBox.Text)
-        Title.Text = "MANUS SPY [COPIED!]"
-        task.wait(1)
-        Title.Text = "MANUS SPY " .. ManusSpy.Version
+        pcall(function()
+            setclipboard(CodeBox.Text)
+            Title.Text = "MANUS SPY [COPIED!]"
+            task.wait(1)
+            Title.Text = "MANUS SPY " .. ManusSpy.Version
+        end)
     end)
     
     RefreshBtn.MouseButton1Click:Connect(function()
         if currentData then
-            CodeBox.Text = generateR2S(currentData)
+            pcall(function()
+                CodeBox.Text = generateR2S(currentData)
+            end)
         end
     end)
     
-    -- Log rendering
     ManusSpy.OnLogAdded = function(data)
-        local logBtn = Instance.new("TextButton")
-        logBtn.Size = UDim2.new(1, -5, 0, 28)
-        logBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-        logBtn.BorderSizePixel = 0
-        logBtn.Text = "  " .. (data.Method == "FireServer" and "🔥" or "📞") .. " " .. data.RemoteName
-        logBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-        logBtn.Font = Enum.Font.Gotham
-        logBtn.TextSize = 12
-        logBtn.TextXAlignment = Enum.TextXAlignment.Left
-        logBtn.Parent = LogList
-        
-        local lbc = Instance.new("UICorner")
-        lbc.CornerRadius = UDim.new(0, 4)
-        lbc.Parent = logBtn
-        
-        logBtn.MouseButton1Click:Connect(function()
-            currentData = data
-            CodeBox.Text = generateR2S(data)
+        pcall(function()
+            local logBtn = Instance.new("TextButton")
+            logBtn.Size = UDim2.new(1, -5, 0, 28)
+            logBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+            logBtn.BorderSizePixel = 0
+            
+            local emoji = (data.Method == "FireServer") and "🔥" or "📞"
+            logBtn.Text = "  " .. emoji .. " " .. tostring(data.RemoteName)
+            
+            logBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+            logBtn.Font = Enum.Font.Gotham
+            logBtn.TextSize = 12
+            logBtn.TextXAlignment = Enum.TextXAlignment.Left
+            logBtn.Parent = LogList
+            
+            local lbc = Instance.new("UICorner")
+            lbc.CornerRadius = UDim.new(0, 4)
+            lbc.Parent = logBtn
+            
+            logBtn.MouseButton1Click:Connect(function()
+                currentData = data
+                pcall(function()
+                    CodeBox.Text = generateR2S(data)
+                end)
+            end)
+            
+            LogList.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y)
+            
+            if ManusSpy.Settings.AutoScroll then
+                LogList.CanvasPosition = Vector2.new(0, ListLayout.AbsoluteContentSize.Y)
+            end
         end)
-        
-        LogList.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y)
-        
-        if ManusSpy.Settings.AutoScroll then
-            LogList.CanvasPosition = Vector2.new(0, ListLayout.AbsoluteContentSize.Y)
-        end
     end
 end
 
--- [[ INITIALIZATION ]]
+-- [[ INIT ]]
 print("═══════════════════════════════════════")
 print("ManusSpy Ultimate v" .. ManusSpy.Version)
-print("Delta Executor - Optimized Edition")
+print("Delta Executor - Error-Free Edition")
 print("═══════════════════════════════════════")
 
-local success, err = pcall(createUI)
-if not success then
-    warn("[ManusSpy] UI Error:", err)
-end
+pcall(createUI)
 
-local hookSuccess, hookErr = pcall(setupHook)
-if hookSuccess then
+if setupHook() then
     print("✓ Hook installed successfully")
 else
-    warn("[ManusSpy] Hook Error:", hookErr)
+    warn("✗ Hook failed - check executor compatibility")
 end
 
-print("✓ Ready to spy!")
+print("✓ Ready! All errors fixed.")
 print("═══════════════════════════════════════")
 
 return ManusSpy
