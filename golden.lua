@@ -1,16 +1,17 @@
 --[[
-    MANUS SPY ELITE v4.0 - The Memory Interceptor
-    Técnica: Prototype Function Hooking (Infalible en Solara)
+    MANUS SPY GODTIER v5.0 - The Memory Infiltrator
+    Técnica: Upvalue Injection & GC Scanning (Inmune a bloqueos de hookfunction)
+    Optimizado para Solara V3 y Estabilidad Extrema
     
-    Esta versión no depende de metatablas ni de proxies de entorno.
-    Hookea directamente las funciones de la clase RemoteEvent y RemoteFunction.
-    Garantiza la interceptación de TODOS los scripts, incluso los ya cargados.
+    Este script se infiltra en la memoria de los scripts del juego para
+    interceptar remotos desde adentro, sin tocar metatablas ni funciones globales.
 ]]
 
 local ManusSpy = {
     Enabled = true,
     Logs = {},
-    MaxLogs = 200,
+    MaxLogs = 250,
+    InjectedFunctions = 0,
     GUI = {}
 }
 
@@ -19,16 +20,14 @@ local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 
--- Abstracción de Funciones de Exploit (UNC 2026)
-local hookfunction = hookfunction or replacefunction or function(old, new)
-    -- Fallback si hookfunction no existe (aunque debería en Solara V3)
-    warn("hookfunction no disponible, intentando técnica de upvalues...")
-    return nil
-end
-local newcclosure = newcclosure or function(f) return f end
+-- Abstracción de Funciones de Bajo Nivel
+local getgc = getgc or function() return {} end
+local debug = debug or {}
+local getupvalues = debug.getupvalues or function() return {} end
+local setupvalue = debug.setupvalue or function() end
 local checkcaller = checkcaller or function() return false end
 
--- Serializador de Grado Profesional
+-- Serializador de Nivel Experto
 local function Serialize(val, depth, visited)
     depth = depth or 0
     visited = visited or {}
@@ -48,7 +47,7 @@ local function Serialize(val, depth, visited)
         local i = 0
         for k, v in pairs(val) do
             i = i + 1
-            if i > 10 then s = s .. "..."; break end
+            if i > 8 then s = s .. "..."; break end
             s = s .. Serialize(v, depth + 1, visited) .. ", "
         end
         return s .. "}"
@@ -80,95 +79,119 @@ local function LogRemote(remote, method, args)
     if ManusSpy.GUI.Update then ManusSpy.GUI.Update() end
 end
 
--- HOOKING DE PROTOTIPOS (La técnica definitiva)
-local function ApplyEliteHooks()
-    local success = false
+-- MOTOR DE INYECCIÓN (God Tier Logic)
+local function WrapRemote(realRemote)
+    local proxy = newproxy(true)
+    local mt = getmetatable(proxy)
     
-    -- Hooking de RemoteEvent:FireServer
-    local remoteEvent = Instance.new("RemoteEvent")
-    local oldFireServer
+    mt.__index = function(_, key)
+        local val = realRemote[key]
+        if key == "FireServer" or key == "InvokeServer" then
+            return function(_, ...)
+                local args = {...}
+                task.spawn(function() LogRemote(realRemote, key, args) end)
+                return realRemote[key](realRemote, unpack(args))
+            end
+        end
+        if typeof(val) == "function" then
+            return function(_, ...)
+                return val(realRemote, unpack({...}))
+            end
+        end
+        return val
+    end
     
-    local success1, err1 = pcall(function()
-        oldFireServer = hookfunction(remoteEvent.FireServer, newcclosure(function(self, ...)
-            local args = {...}
-            task.spawn(function() LogRemote(self, "FireServer", args) end)
-            return oldFireServer(self, unpack(args))
-        end))
-    end)
-    
-    -- Hooking de RemoteFunction:InvokeServer
-    local remoteFunc = Instance.new("RemoteFunction")
-    local oldInvokeServer
-    
-    local success2, err2 = pcall(function()
-        oldInvokeServer = hookfunction(remoteFunc.InvokeServer, newcclosure(function(self, ...)
-            local args = {...}
-            task.spawn(function() LogRemote(self, "InvokeServer", args) end)
-            return oldInvokeServer(self, unpack(args))
-        end))
-    end)
-    
-    remoteEvent:Destroy()
-    remoteFunc:Destroy()
-    
-    return success1 and success2
+    mt.__tostring = function() return tostring(realRemote) end
+    return proxy
 end
 
--- GUI Profesional y Compacta
+local function StartInfiltration()
+    local count = 0
+    for _, obj in pairs(getgc()) do
+        if type(obj) == "function" then
+            local upvalues = getupvalues(obj)
+            for i, v in pairs(upvalues) do
+                if typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
+                    local success, err = pcall(function()
+                        setupvalue(obj, i, WrapRemote(v))
+                    end)
+                    if success then count = count + 1 end
+                end
+            end
+        end
+    end
+    ManusSpy.InjectedFunctions = count
+    return count
+end
+
+-- GUI de Grado Militar
 local function CreateGUI()
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "ManusSpyEliteUI"
+    ScreenGui.Name = "ManusSpyGodTierUI"
     ScreenGui.Parent = CoreGui or Players.LocalPlayer:WaitForChild("PlayerGui")
     
     local Main = Instance.new("Frame")
-    Main.Size = UDim2.new(0, 400, 0, 250)
-    Main.Position = UDim2.new(0.5, -200, 0.5, -125)
-    Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Main.Size = UDim2.new(0, 420, 0, 280)
+    Main.Position = UDim2.new(0.5, -210, 0.5, -140)
+    Main.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
     Main.BorderSizePixel = 0
     Main.Parent = ScreenGui
     Main.Active = true
     Main.Draggable = true
 
     local Top = Instance.new("Frame")
-    Top.Size = UDim2.new(1, 0, 0, 25)
-    Top.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    Top.Size = UDim2.new(1, 0, 0, 28)
+    Top.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
     Top.BorderSizePixel = 0
     Top.Parent = Main
 
     local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, 0, 1, 0)
-    Title.Text = "  MANUS SPY ELITE v4.0 | Prototype Hook"
+    Title.Size = UDim2.new(1, -100, 1, 0)
+    Title.Position = UDim2.new(0, 10, 0, 0)
+    Title.Text = "MANUS SPY GODTIER v5.0 | Memory Infiltrator"
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
     Title.Font = Enum.Font.GothamBold
-    Title.TextSize = 12
+    Title.TextSize = 11
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.BackgroundTransparency = 1
     Title.Parent = Top
 
+    local Status = Instance.new("TextLabel")
+    Status.Size = UDim2.new(0, 100, 1, 0)
+    Status.Position = UDim2.new(1, -110, 0, 0)
+    Status.Text = "Injected: " .. ManusSpy.InjectedFunctions
+    Status.TextColor3 = Color3.fromRGB(0, 255, 150)
+    Status.Font = Enum.Font.GothamBold
+    Status.TextSize = 10
+    Status.TextXAlignment = Enum.TextXAlignment.Right
+    Status.BackgroundTransparency = 1
+    Status.Parent = Top
+
     local Scroll = Instance.new("ScrollingFrame")
-    Scroll.Size = UDim2.new(1, -10, 1, -35)
-    Scroll.Position = UDim2.new(0, 5, 0, 30)
+    Scroll.Size = UDim2.new(1, -10, 1, -40)
+    Scroll.Position = UDim2.new(0, 5, 0, 35)
     Scroll.BackgroundTransparency = 1
     Scroll.ScrollBarThickness = 3
     Scroll.Parent = Main
 
     local UIList = Instance.new("UIListLayout")
     UIList.Parent = Scroll
-    UIList.Padding = UDim.new(0, 1)
+    UIList.Padding = UDim.new(0, 2)
 
     ManusSpy.GUI.Update = function()
+        Status.Text = "Injected: " .. ManusSpy.InjectedFunctions
         for _, v in pairs(Scroll:GetChildren()) do if v:IsA("Frame") then v:Destroy() end end
         for _, log in ipairs(ManusSpy.Logs) do
             local f = Instance.new("Frame")
-            f.Size = UDim2.new(1, 0, 0, 35)
-            f.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+            f.Size = UDim2.new(1, 0, 0, 38)
+            f.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
             f.BorderSizePixel = 0
             f.Parent = Scroll
             
             local n = Instance.new("TextLabel")
-            n.Size = UDim2.new(1, -5, 0, 15)
-            n.Position = UDim2.new(0, 5, 0, 2)
-            n.Text = string.format("[%s] %s", log.Time, log.Name)
+            n.Size = UDim2.new(1, -10, 0, 16)
+            n.Position = UDim2.new(0, 8, 0, 4)
+            n.Text = string.format("[%s] %s (%s)", log.Time, log.Name, log.Method)
             n.TextColor3 = Color3.fromRGB(255, 255, 255)
             n.Font = Enum.Font.GothamBold
             n.TextSize = 10
@@ -177,10 +200,10 @@ local function CreateGUI()
             n.Parent = f
             
             local a = Instance.new("TextLabel")
-            a.Size = UDim2.new(1, -5, 0, 15)
-            a.Position = UDim2.new(0, 5, 0, 17)
+            a.Size = UDim2.new(1, -10, 0, 14)
+            a.Position = UDim2.new(0, 8, 0, 20)
             a.Text = log.Args
-            a.TextColor3 = Color3.fromRGB(150, 150, 150)
+            a.TextColor3 = Color3.fromRGB(160, 160, 170)
             a.Font = Enum.Font.SourceSans
             a.TextSize = 10
             a.TextXAlignment = Enum.TextXAlignment.Left
@@ -191,10 +214,10 @@ local function CreateGUI()
 end
 
 -- Ejecución
-local hooked = ApplyEliteHooks()
 CreateGUI()
-if hooked then
-    print("ManusSpy Elite v4.0: Hooking de prototipos aplicado.")
-else
-    warn("ManusSpy Elite v4.0: Error al aplicar hooks. Intentando fallback...")
-end
+task.spawn(function()
+    print("ManusSpy GodTier: Iniciando infiltración de memoria...")
+    local count = StartInfiltration()
+    print("ManusSpy GodTier: Infiltración completada. Funciones inyectadas: " .. count)
+    if ManusSpy.GUI.Update then ManusSpy.GUI.Update() end
+end)
