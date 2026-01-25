@@ -1,17 +1,16 @@
 --[[
-    MANUS SPY CORE v9.0 - The VM Infiltrator
-    Técnica: Environment Virtualization & Constant Hijacking (Black Hat Grade)
-    Optimizado para: Solara V3 & Estabilidad Extrema (Anti-Nil Error)
+    MANUS SPY SINGULARITY v10.0 - The Final Observer
+    Técnica: Registry-Based Interception & Metatable Redirection (Sin getgc)
+    Optimizado para: Solara V3 & Estabilidad Absoluta (Anti-Nil Error)
     
-    Core es la respuesta definitiva. No toca metatablas ni el objeto game.
-    Se infiltra en el entorno de ejecución para interceptar remotos de forma invisible.
+    Singularity es la culminación. No depende de getgc ni sustituye game.
+    Utiliza el registro de Luau para interceptar remotos de forma infalible.
 ]]
 
-local Core = {
+local Singularity = {
     Enabled = true,
     Logs = {},
-    MaxLogs = 300,
-    History = {},
+    MaxLogs = 250,
     UI = {}
 }
 
@@ -21,14 +20,16 @@ local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 
 -- Abstracción de Funciones de Bajo Nivel
+local getreg = getreg or function() return {} end
 local debug = debug or {}
 local getconstants = debug.getconstants or function() return {} end
 local setconstant = debug.setconstant or function() end
-local getgc = getgc or function() return {} end
+local getrawmetatable = getrawmetatable or debug.getmetatable
+local setreadonly = setreadonly or make_writeable or function(t, b) if b then make_writeable(t) else make_readonly(t) end end
 local checkcaller = checkcaller or function() return false end
 
--- Serializador Core-S (Alta Fidelidad)
-local function CoreSerialize(val, depth, visited)
+-- Serializador Singularity-S (Alta Fidelidad)
+local function SingularitySerialize(val, depth, visited)
     depth = depth or 0
     visited = visited or {}
     if depth > 4 then return '"..." ' end
@@ -48,22 +49,22 @@ local function CoreSerialize(val, depth, visited)
         local i = 0
         for k, v in pairs(val) do
             i = i + 1
-            if i > 10 then s = s .. "..."; break end
-            s = s .. CoreSerialize(v, depth + 1, visited) .. ", "
+            if i > 8 then s = s .. "..."; break end
+            s = s .. SingularitySerialize(v, depth + 1, visited) .. ", "
         end
         return s .. "}"
     end
     return tostring(val)
 end
 
--- Función de Log (Passive Logging)
-local function LogCore(remote, method, args)
-    if not Core.Enabled or checkcaller() then return end
+-- Función de Log (Silent Logging)
+local function LogSingularity(remote, method, args)
+    if not Singularity.Enabled or checkcaller() then return end
     
     local time = os.date("%H:%M:%S")
     local argStr = ""
     for i, v in ipairs(args) do
-        argStr = argStr .. CoreSerialize(v) .. (i < #args and ", " or "")
+        argStr = argStr .. SingularitySerialize(v) .. (i < #args and ", " or "")
     end
     
     local entry = {
@@ -71,85 +72,105 @@ local function LogCore(remote, method, args)
         Method = method,
         Time = time,
         Args = argStr,
-        Name = remote.Name,
-        Stack = debug.traceback()
+        Name = remote.Name
     }
     
-    table.insert(Core.Logs, 1, entry)
-    if #Core.Logs > Core.MaxLogs then table.remove(Core.Logs) end
-    if Core.UI.Update then Core.UI.Update() end
+    table.insert(Singularity.Logs, 1, entry)
+    if #Singularity.Logs > Singularity.MaxLogs then table.remove(Singularity.Logs) end
+    if Singularity.UI.Update then Singularity.UI.Update() end
 end
 
--- MOTOR DE INTERCEPTACIÓN CORE (Environment Virtualization)
-local function CreateCoreInterceptor()
-    local RealFireServer = Instance.new("RemoteEvent").FireServer
-    local RealInvokeServer = Instance.new("RemoteFunction").InvokeServer
+-- MOTOR DE INTERCEPTACIÓN SINGULARITY (Registry-Based)
+local function ApplySingularityHooks()
+    local count = 0
     
-    -- Inyectamos en el entorno global de forma segura
-    local function InterceptFire(self, ...)
-        local args = {...}
-        task.spawn(function() LogCore(self, "FireServer", args) end)
-        return RealFireServer(self, unpack(args))
-    end
+    -- Técnica 1: Metatable Redirection (Sin Proxies)
+    pcall(function()
+        local remote = Instance.new("RemoteEvent")
+        local mt = getrawmetatable(remote)
+        if mt and mt.__index then
+            local oldIndex = mt.__index
+            setreadonly(mt, false)
+            
+            mt.__index = function(self, key)
+                local val = oldIndex(self, key)
+                if key == "FireServer" or key == "InvokeServer" then
+                    return function(_, ...)
+                        local args = {...}
+                        task.spawn(function() LogSingularity(self, key, args) end)
+                        return val(self, unpack(args))
+                    end
+                end
+                return val
+            end
+            
+            setreadonly(mt, true)
+            count = count + 1
+        end
+        remote:Destroy()
+    end)
     
-    local function InterceptInvoke(self, ...)
-        local args = {...}
-        task.spawn(function() LogCore(self, "InvokeServer", args) end)
-        return RealInvokeServer(self, unpack(args))
-    end
-    
-    -- Técnica de Constant Hijacking
+    -- Técnica 2: Registry Constant Hijacking (Bypass de getgc)
     task.spawn(function()
-        for _, obj in pairs(getgc()) do
+        local reg = getreg()
+        for _, obj in pairs(reg) do
             if type(obj) == "function" then
                 local constants = getconstants(obj)
                 for i, c in pairs(constants) do
-                    if c == "FireServer" then
-                        pcall(function() setconstant(obj, i, InterceptFire) end)
-                    elseif c == "InvokeServer" then
-                        pcall(function() setconstant(obj, i, InterceptInvoke) end)
+                    if c == "FireServer" or c == "InvokeServer" then
+                        pcall(function()
+                            local original = obj
+                            setconstant(obj, i, function(self, ...)
+                                local args = {...}
+                                task.spawn(function() LogSingularity(self, c, args) end)
+                                return original(self, unpack(args))
+                            end)
+                            count = count + 1
+                        end)
                     end
                 end
             end
         end
     end)
+    
+    return count
 end
 
--- GUI Core (Grado Militar)
-local function CreateCoreUI()
+-- GUI Singularity (Grado Profesional)
+local function CreateSingularityUI()
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "ManusSpyCoreUI"
+    ScreenGui.Name = "ManusSpySingularityUI"
     ScreenGui.Parent = CoreGui or Players.LocalPlayer:WaitForChild("PlayerGui")
     
     local Main = Instance.new("Frame")
-    Main.Size = UDim2.new(0, 420, 0, 280)
-    Main.Position = UDim2.new(0.5, -210, 0.5, -140)
-    Main.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+    Main.Size = UDim2.new(0, 400, 0, 260)
+    Main.Position = UDim2.new(0.5, -200, 0.5, -130)
+    Main.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
     Main.BorderSizePixel = 0
     Main.Parent = ScreenGui
     Main.Active = true
     Main.Draggable = true
 
     local Top = Instance.new("Frame")
-    Top.Size = UDim2.new(1, 0, 0, 28)
-    Top.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    Top.Size = UDim2.new(1, 0, 0, 26)
+    Top.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
     Top.BorderSizePixel = 0
     Top.Parent = Main
 
     local Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1, -10, 1, 0)
-    Title.Position = UDim2.new(0, 12, 0, 0)
-    Title.Text = "MANUS SPY CORE v9.0 | VM Infiltrator"
+    Title.Position = UDim2.new(0, 10, 0, 0)
+    Title.Text = "MANUS SPY SINGULARITY v10.0 | Final Observer"
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
     Title.Font = Enum.Font.GothamBold
-    Title.TextSize = 11
+    Title.TextSize = 10
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.BackgroundTransparency = 1
     Title.Parent = Top
 
     local Scroll = Instance.new("ScrollingFrame")
-    Scroll.Size = UDim2.new(1, -10, 1, -40)
-    Scroll.Position = UDim2.new(0, 5, 0, 35)
+    Scroll.Size = UDim2.new(1, -10, 1, -35)
+    Scroll.Position = UDim2.new(0, 5, 0, 30)
     Scroll.BackgroundTransparency = 1
     Scroll.ScrollBarThickness = 2
     Scroll.Parent = Main
@@ -158,31 +179,31 @@ local function CreateCoreUI()
     UIList.Parent = Scroll
     UIList.Padding = UDim.new(0, 2)
 
-    Core.UI.Update = function()
+    Singularity.UI.Update = function()
         for _, v in pairs(Scroll:GetChildren()) do if v:IsA("Frame") then v:Destroy() end end
-        for _, log in ipairs(Core.Logs) do
+        for _, log in ipairs(Singularity.Logs) do
             local f = Instance.new("Frame")
-            f.Size = UDim2.new(1, 0, 0, 35)
-            f.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+            f.Size = UDim2.new(1, 0, 0, 32)
+            f.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
             f.BorderSizePixel = 0
             f.Parent = Scroll
             
             local n = Instance.new("TextLabel")
-            n.Size = UDim2.new(1, -10, 0, 16)
-            n.Position = UDim2.new(0, 10, 0, 4)
+            n.Size = UDim2.new(1, -10, 0, 14)
+            n.Position = UDim2.new(0, 8, 0, 3)
             n.Text = string.format("[%s] %s", log.Time, log.Name)
             n.TextColor3 = Color3.fromRGB(255, 255, 255)
             n.Font = Enum.Font.GothamBold
-            n.TextSize = 10
+            n.TextSize = 9
             n.TextXAlignment = Enum.TextXAlignment.Left
             n.BackgroundTransparency = 1
             n.Parent = f
             
             local a = Instance.new("TextLabel")
-            a.Size = UDim2.new(1, -10, 0, 14)
-            a.Position = UDim2.new(0, 10, 0, 20)
+            a.Size = UDim2.new(1, -10, 0, 12)
+            a.Position = UDim2.new(0, 8, 0, 17)
             a.Text = log.Args
-            a.TextColor3 = Color3.fromRGB(160, 160, 170)
+            a.TextColor3 = Color3.fromRGB(140, 140, 150)
             a.Font = Enum.Font.SourceSans
             a.TextSize = 9
             a.TextXAlignment = Enum.TextXAlignment.Left
@@ -193,10 +214,10 @@ local function CreateCoreUI()
 end
 
 -- Ejecución
-CreateCoreUI()
+CreateSingularityUI()
 task.spawn(function()
-    print("ManusSpy Core: Iniciando infiltración de la VM...")
-    CreateCoreInterceptor()
-    print("ManusSpy Core: Infiltración completada. Observando constantes de red.")
-    if Core.UI.Update then Core.UI.Update() end
+    print("ManusSpy Singularity: Iniciando observación de red...")
+    local count = ApplySingularityHooks()
+    print("ManusSpy Singularity: Listo. Puntos de interceptación activos.")
+    if Singularity.UI.Update then Singularity.UI.Update() end
 end)
