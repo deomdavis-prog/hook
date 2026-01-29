@@ -1,40 +1,40 @@
--- AUDIT SCRIPT v8 - Simple, pcall everywhere for Delta stability
-local function safePrint(label, ...)
-    pcall(print, "[AUDIT v8]", label, ...)
-end
+local game = game
+local print = print
+local pcall = pcall
+local ipairs = ipairs
+local table = table
+local string = string
+local task = task
+local os = os
 
-local function safeGet(obj, name)
-    return pcall(obj.FindFirstChild, obj, name) or pcall(obj.WaitForChild, obj, name, 5)
+local function safePrint(label, ...)
+    pcall(print, "[AUDIT v9]", label, ...)
 end
 
 local player = pcall(game.GetService, game, "Players").LocalPlayer
 local ws = pcall(game.GetService, game, "Workspace")
-local rs = pcall(game.GetService, game, "ReplicatedStorage")
-local http = pcall(game.GetService, game, "HttpService")
 
 local IMPORTANT_REMOTES = {"Coins", "Open Egg", "Pets", "Inventory", "Get Other Stats", "Get Stats"}
 
 local function safeWrapRemote(remote)
     if not remote then return end
-    local ok, name = pcall(function() return remote.Name end)
-    if ok then
-        safePrint("Hooking:", remote:GetFullName(), "("..remote.ClassName..")")
-    end
+    local name = remote.Name
+    safePrint("Hooking:", remote:GetFullName(), "("..remote.ClassName..")")
 
-    if pcall(remote.IsA, remote, "RemoteEvent") then
+    if remote:IsA("RemoteEvent") then
         pcall(function()
             remote.OnClientEvent:Connect(function(...)
                 safePrint("← OnClientEvent", name, ...)
             end)
         end)
         pcall(function()
-            local oldFire = remote.FireServer
+            local old = remote.FireServer
             remote.FireServer = function(self, ...)
                 safePrint("→ FireServer", name, ...)
-                return oldFire(self, ...)
+                return old(self, ...)
             end
         end)
-    elseif pcall(remote.IsA, remote, "RemoteFunction") then
+    elseif remote:IsA("RemoteFunction") then
         pcall(function()
             remote.OnClientInvoke = function(...)
                 safePrint("← OnClientInvoke", name, ...)
@@ -42,10 +42,10 @@ local function safeWrapRemote(remote)
             end
         end)
         pcall(function()
-            local oldInvoke = remote.InvokeServer
+            local old = remote.InvokeServer
             remote.InvokeServer = function(self, ...)
                 safePrint("→ InvokeServer", name, ...)
-                local ok, result = pcall(oldInvoke, self, ...)
+                local ok, result = pcall(old, self, ...)
                 if not ok then safePrint("Invoke ERROR:", result) end
                 return result
             end
@@ -55,13 +55,13 @@ end
 
 -- Hook remotes
 pcall(function()
-    local remotesFolder = safeGet(ws, "__REMOTES")
-    if remotesFolder then
-        for _, folderName in ipairs({"Game", "Core"}) do
-            local folder = safeGet(remotesFolder, folderName)
+    local remotes = ws:FindFirstChild("__REMOTES", true)
+    if remotes then
+        for _, fName in ipairs({"Game", "Core"}) do
+            local folder = remotes:FindFirstChild(fName)
             if folder then
-                for _, child in ipairs(pcall(folder.GetChildren, folder)) do
-                    if (pcall(child.IsA, child, "RemoteEvent") or pcall(child.IsA, child, "RemoteFunction")) and table.find(IMPORTANT_REMOTES, child.Name) then
+                for _, child in ipairs(folder:GetChildren()) do
+                    if (child:IsA("RemoteEvent") or child:IsA("RemoteFunction")) and table.find(IMPORTANT_REMOTES, child.Name) then
                         safeWrapRemote(child)
                     end
                 end
@@ -73,11 +73,11 @@ end)
 
 -- Leaderstats
 pcall(function()
-    local leaderstats = pcall(player.WaitForChild, player, "leaderstats", 10)
+    local leaderstats = player:WaitForChild("leaderstats", 10)
     if leaderstats then
-        for _, stat in ipairs(pcall(leaderstats.GetChildren, leaderstats)) do
-            if pcall(stat.IsA, stat, "ValueBase") then
-                pcall(stat.Changed:Connect, stat, function(val)
+        for _, stat in ipairs(leaderstats:GetChildren()) do
+            if stat:IsA("ValueBase") then
+                stat.Changed:Connect(function(val)
                     safePrint("Leaderstat Changed:", stat.Name, "→", val)
                 end)
             end
@@ -86,20 +86,18 @@ pcall(function()
     end
 end)
 
--- Simple search hidden (no queue, shallow)
+-- Simple search (shallow, no deep descend)
 pcall(function()
-    local parents = {ws, player.PlayerGui, rs, player}
+    local parents = {ws, player.PlayerGui, game.ReplicatedStorage, player}
     for _, parent in ipairs(parents) do
         if parent then
             safePrint("Buscando en:", parent:GetFullName())
-            for _, obj in ipairs(pcall(parent.GetDescendants, parent)) do
+            for _, obj in ipairs(parent:GetDescendants()) do
                 local n = string.lower(obj.Name)
                 if string.find(n, "level") or string.find(n, "lvl") or string.find(n, "exp") or string.find(n, "xp") or string.find(n, "petdata") then
                     local info = obj:GetFullName() .. " | " .. obj.ClassName
                     if obj:IsA("ValueBase") then info = info .. " | Value=" .. tostring(obj.Value) end
                     if obj:IsA("TextLabel") then info = info .. " | Text=" .. obj.Text end
-                    local attrs = obj:GetAttributes()
-                    if next(attrs) then info = info .. " | Attrs=" .. pcall(http.JSONEncode, http, attrs) end
                     safePrint("Hidden found:", info)
                 end
             end
@@ -107,53 +105,18 @@ pcall(function()
     end
 end)
 
--- Monitor reward GUI
-task.spawn(function()
-    local gui = pcall(player.WaitForChild, player, "PlayerGui", 10)
-    while task.wait(0.5) do
-        if gui then
-            for _, desc in ipairs(pcall(gui.GetDescendants, gui)) do
-                if pcall(desc.IsA, desc, "TextLabel") and string.find(string.lower(desc.Text), "rewarded") then
-                    safePrint("Reward GUI:", desc.Text, "Path:", desc:GetFullName())
-                end
+-- Reward GUI monitor (simple loop)
+task.wait(2)
+while true do
+    pcall(function()
+        local gui = player.PlayerGui
+        for _, desc in ipairs(gui:GetDescendants()) do
+            if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), "rewarded") then
+                safePrint("Reward GUI:", desc.Text, "Path:", desc:GetFullName())
             end
         end
-    end
-end)
+    end)
+    task.wait(0.5)
+end
 
--- Monitor Pets folder
-task.spawn(function()
-    local debris = safeGet(ws, "__DEBRIS")
-    if debris then
-        local petsFolder = safeGet(debris, "Pets")
-        if petsFolder then
-            safePrint("Monitoring Pets:", petsFolder:GetFullName())
-            pcall(petsFolder.ChildAdded:Connect, petsFolder, function(child)
-                safePrint("Pet Added:", child.Name)
-                for _, desc in ipairs(pcall(child.GetDescendants, child)) do
-                    local n = string.lower(desc.Name)
-                    if string.find(n, "level") or string.find(n, "exp") then
-                        local info = desc:GetFullName() .. " | " .. desc.ClassName .. " | " .. (desc.Text or desc.Value or "")
-                        safePrint("Pet Stat:", info)
-                    end
-                end
-            end)
-            pcall(petsFolder.ChildRemoved:Connect, petsFolder, function(child)
-                safePrint("Pet Removed:", child.Name)
-            end)
-            -- Initial scan
-            for _, pet in ipairs(pcall(petsFolder.GetChildren, petsFolder)) do
-                safePrint("Initial Pet:", pet.Name)
-                for _, desc in ipairs(pcall(pet.GetDescendants, pet)) do
-                    local n = string.lower(desc.Name)
-                    if string.find(n, "level") or string.find(n, "exp") then
-                        local info = desc:GetFullName() .. " | " .. desc.ClassName .. " | " .. (desc.Text or desc.Value or "")
-                        safePrint("Pet Stat:", info)
-                    end
-                end
-            end
-        end
-    end
-end)
-
-safePrint("v8 loaded. Do manual actions 1 by 1 (equip pet, unequip, open egg, claim, buy shop) and copy logs.")
+safePrint("v9 loaded. Do manual actions (equip, open egg etc.) and copy logs.")
