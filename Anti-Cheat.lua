@@ -1,6 +1,8 @@
--- AUDIT SCRIPT v4 - Iterativo (sin recursion), Lua 5.1 puro, WaitForChild, ultra-estable
+-- AUDIT SCRIPT v5 - Fix iterator, added GUI reward monitor, ultra-stable
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 local ws = game.Workspace
 
@@ -58,7 +60,7 @@ end
 
 local function findAndHook(folder)
     if not folder then return end
-    for _, child in ipairs(folder:GetDescendants()) do
+    for _, child in pairs(folder:GetDescendants()) do
         if (child:IsA("RemoteEvent") or child:IsA("RemoteFunction")) and table.find(IMPORTANT_REMOTES, child.Name) then
             safeWrapRemote(child)
         end
@@ -80,8 +82,8 @@ end
 task.wait(1)
 local leaderstats = player:WaitForChild("leaderstats", 10)
 if leaderstats then
-    for _, stat in ipairs(leaderstats:GetChildren()) do
-        if stat:IsA("StringValue") or stat:IsA("IntValue") or stat:IsA("NumberValue") then
+    for _, stat in pairs(leaderstats:GetChildren()) do
+        if stat:IsA("ValueBase") then
             stat.Changed:Connect(function(val)
                 safePrint("Leaderstat Changed:", stat.Name, "→", val)
             end)
@@ -92,7 +94,7 @@ else
     safePrint("ERROR: leaderstats no encontrado.")
 end
 
--- Búsqueda ITERATIVA de valores ocultos (sin recursion, depth limit)
+-- Búsqueda ITERATIVA (pairs, pcall)
 task.wait(2)
 local function searchHidden(parent)
     if not parent then return end
@@ -102,40 +104,49 @@ local function searchHidden(parent)
         local entry = table.remove(queue, 1)
         local obj = entry.obj
         local depth = entry.depth
-        if depth > 5 then
-            continue
-        end
-        local n = string.lower(obj.Name)
-        local isMatch = false
-        if string.find(n, "level") or string.find(n, "lvl") or string.find(n, "exp") or string.find(n, "xp") or string.find(n, "petdata") then
-            isMatch = true
-        end
-        if isMatch then
-            local info = obj:GetFullName() .. " | " .. obj.ClassName
-            if obj:IsA("ValueBase") then
-                info = info .. " | Value=" .. tostring(obj.Value)
+        if depth > 5 then continue end
+        pcall(function()
+            local n = string.lower(obj.Name)
+            local isMatch = string.find(n, "level") or string.find(n, "lvl") or string.find(n, "exp") or string.find(n, "xp") or string.find(n, "petdata")
+            if isMatch then
+                local info = obj:GetFullName() .. " | " .. obj.ClassName
+                if obj:IsA("ValueBase") then
+                    info = info .. " | Value=" .. tostring(obj.Value)
+                end
+                if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                    info = info .. " | Text=" .. tostring(obj.Text)
+                end
+                local attrs = obj:GetAttributes()
+                if next(attrs) then
+                    info = info .. " | Attrs=" .. HttpService:JSONEncode(attrs)
+                end
+                safePrint("Hidden data found:", info)
             end
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                info = info .. " | Text=" .. tostring(obj.Text)
-            end
-            local attrs = obj:GetAttributes()
-            if next(attrs) then
-                info = info .. " | Attrs=" .. game:GetService("HttpService"):JSONEncode(attrs)
-            end
-            safePrint("Hidden data found:", info)
-        end
-        for _, child in ipairs(obj:GetChildren()) do
+        end)
+        for _, child in pairs(obj:GetChildren()) do
             table.insert(queue, {obj = child, depth = depth + 1})
         end
     end
 end
 
 local PlayerGui = player:WaitForChild("PlayerGui", 10)
-searchHidden(ws)
-if PlayerGui then
-    searchHidden(PlayerGui)
-end
-searchHidden(ReplicatedStorage)
-searchHidden(player)
+pcall(function() searchHidden(ws) end)
+if PlayerGui then pcall(function() searchHidden(PlayerGui) end) end
+pcall(function() searchHidden(ReplicatedStorage) end)
+pcall(function() searchHidden(player) end)
 
-safePrint("=== SCRIPT v4 CARGADO 100% === Realiza acciones manuales UNA POR UNA y pega TODOS los logs aquí.")
+-- Monitor reward messages in GUI
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if PlayerGui then
+            for _, desc in pairs(PlayerGui:GetDescendants()) do
+                if desc:IsA("TextLabel") and string.find(string.lower(desc.Text), "rewarded") then
+                    safePrint("Reward GUI detected:", desc.Text, " | Path:", desc:GetFullName())
+                end
+            end
+        end
+    end
+end)
+
+safePrint("=== SCRIPT v5 CARGADO 100% === Realiza acciones manuales UNA POR UNA y pega TODOS los logs aquí.")
