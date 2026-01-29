@@ -1,187 +1,226 @@
 --[[
-    SISTEMA DE AUDITORÍA DE METATABLES (DELTA MOBILE COMPATIBLE)
-    Propósito: Encontrar, desbloquear y extraer contenido de metatables bloqueadas.
-    Características: GUI Interactiva, Desbloqueo de __metatable, Extracción Recursiva, Botón Copy All.
+    SISTEMA DE AUDITORÍA DE METATABLES - EDICIÓN PET SIMULATOR 1 (ORIGINAL)
+    Optimizado para Delta Mobile / Luau de BIG Games
+    
+    Este sistema está diseñado para auditar la seguridad de las metatables en Pet Simulator 1,
+    enfocándose en los módulos de Library, Network y Database que el juego utiliza.
+    
+    Funcionalidades:
+    - Escaneo de módulos específicos de PS1 (Library, Network, Functions).
+    - Bypass de __metatable lock (getrawmetatable).
+    - Desbloqueo de tablas protegidas (setreadonly).
+    - GUI Interactiva con diseño adaptado a móviles.
+    - Función "Copy All" para extraer el dump completo.
 ]]
 
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
 
--- Verificar compatibilidad con Delta/Executor
+-- APIs de Executor (Delta/Mobile)
 local getrawmetatable = getrawmetatable or (debug and debug.getmetatable)
 local setreadonly = setreadonly or (make_writeable and function(t, b) if b then make_writeable(t) else make_readonly(t) end end)
-local setrawmetatable = setrawmetatable or (debug and debug.setmetatable)
+local setclipboard = setclipboard or print
 
-if not getrawmetatable then
-    warn("Executor no compatible: Se requiere getrawmetatable o debug.getmetatable")
-    return
-end
-
--- Variables de la GUI
+-- Configuración de la GUI
 local ScreenGui = Instance.new("ScreenGui")
-local MainFrame = Instance.new("Frame")
-local Title = Instance.new("TextLabel")
-local ContentScroll = Instance.new("ScrollingFrame")
-local UIListLayout = Instance.new("UIListLayout")
-local CopyAllBtn = Instance.new("TextButton")
-local CloseBtn = Instance.new("TextButton")
-local StatusLabel = Instance.new("TextLabel")
-
--- Configuración de la GUI (Estilo Mobile Friendly)
-ScreenGui.Name = "MetatableAuditor"
+ScreenGui.Name = "PS1_Auditor_Delta"
 ScreenGui.Parent = CoreGui
-ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-MainFrame.Name = "MainFrame"
-MainFrame.Parent = ScreenGui
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -200)
-MainFrame.Size = UDim2.new(0, 300, 0, 400)
-MainFrame.Active = true
-MainFrame.Draggable = true
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Parent = ScreenGui
+Main.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+Main.BorderSizePixel = 0
+Main.Position = UDim2.new(0.5, -160, 0.5, -200)
+Main.Size = UDim2.new(0, 320, 0, 400)
+Main.Active = true
+Main.Draggable = true
 
-Title.Name = "Title"
-Title.Parent = MainFrame
-Title.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-Title.Size = UDim2.new(1, 0, 0, 30)
-Title.Font = Enum.Font.SourceSansBold
-Title.Text = "Metatable Auditor - Delta"
+-- Esquinas redondeadas para estilo moderno
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = Main
+
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Parent = Main
+TopBar.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+
+local TopCorner = Instance.new("UICorner")
+TopCorner.CornerRadius = UDim.new(0, 10)
+TopCorner.Parent = TopBar
+
+local Title = Instance.new("TextLabel")
+Title.Parent = TopBar
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, -40, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Font = Enum.Font.GothamBold
+Title.Text = "PS1 METATABLE AUDITOR"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 18
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
 
-ContentScroll.Name = "ContentScroll"
-ContentScroll.Parent = MainFrame
-ContentScroll.BackgroundTransparency = 1
-ContentScroll.Position = UDim2.new(0, 5, 0, 35)
-ContentScroll.Size = UDim2.new(1, -10, 1, -100)
-ContentScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-ContentScroll.ScrollBarThickness = 4
+local Close = Instance.new("TextButton")
+Close.Parent = TopBar
+Close.Position = UDim2.new(1, -35, 0, 7)
+Close.Size = UDim2.new(0, 25, 0, 25)
+Close.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
+Close.Text = "X"
+Close.TextColor3 = Color3.fromRGB(255, 255, 255)
+Close.Font = Enum.Font.GothamBold
+Close.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+Instance.new("UICorner", Close).CornerRadius = UDim.new(0, 5)
 
-UIListLayout.Parent = ContentScroll
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 5)
+local Content = Instance.new("ScrollingFrame")
+Content.Parent = Main
+Content.Position = UDim2.new(0, 10, 0, 50)
+Content.Size = UDim2.new(1, -20, 1, -130)
+Content.BackgroundTransparency = 1
+Content.CanvasSize = UDim2.new(0, 0, 0, 0)
+Content.ScrollBarThickness = 4
 
-StatusLabel.Name = "StatusLabel"
-StatusLabel.Parent = MainFrame
-StatusLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-StatusLabel.Position = UDim2.new(0, 5, 1, -60)
-StatusLabel.Size = UDim2.new(1, -10, 0, 20)
-StatusLabel.Font = Enum.Font.SourceSansItalic
-StatusLabel.Text = "Listo para escanear..."
-StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-StatusLabel.TextSize = 14
+local UIList = Instance.new("UIListLayout")
+UIList.Parent = Content
+UIList.Padding = UDim.new(0, 5)
 
-CopyAllBtn.Name = "CopyAllBtn"
-CopyAllBtn.Parent = MainFrame
-CopyAllBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
-CopyAllBtn.Position = UDim2.new(0, 5, 1, -35)
-CopyAllBtn.Size = UDim2.new(0.6, -10, 0, 30)
-CopyAllBtn.Font = Enum.Font.SourceSansBold
-CopyAllBtn.Text = "COPY ALL"
-CopyAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CopyAllBtn.TextSize = 16
+local Controls = Instance.new("Frame")
+Controls.Parent = Main
+Controls.Position = UDim2.new(0, 10, 1, -75)
+Controls.Size = UDim2.new(1, -20, 0, 65)
+Controls.BackgroundTransparency = 1
 
-CloseBtn.Name = "CloseBtn"
-CloseBtn.Parent = MainFrame
-CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-CloseBtn.Position = UDim2.new(0.6, 5, 1, -35)
-CloseBtn.Size = UDim2.new(0.4, -10, 0, 30)
-CloseBtn.Font = Enum.Font.SourceSansBold
-CloseBtn.Text = "CLOSE"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.TextSize = 16
+local ScanBtn = Instance.new("TextButton")
+ScanBtn.Parent = Controls
+ScanBtn.Size = UDim2.new(0.48, 0, 0, 35)
+ScanBtn.BackgroundColor3 = Color3.fromRGB(60, 180, 100)
+ScanBtn.Text = "SCAN PS1"
+ScanBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ScanBtn.Font = Enum.Font.GothamBold
+Instance.new("UICorner", ScanBtn).CornerRadius = UDim.new(0, 8)
+
+local CopyBtn = Instance.new("TextButton")
+CopyBtn.Parent = Controls
+CopyBtn.Position = UDim2.new(0.52, 0, 0, 0)
+CopyBtn.Size = UDim2.new(0.48, 0, 0, 35)
+CopyBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 220)
+CopyBtn.Text = "COPY ALL"
+CopyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CopyBtn.Font = Enum.Font.GothamBold
+Instance.new("UICorner", CopyBtn).CornerRadius = UDim.new(0, 8)
+
+local Status = Instance.new("TextLabel")
+Status.Parent = Controls
+Status.Position = UDim2.new(0, 0, 0, 40)
+Status.Size = UDim2.new(1, 0, 0, 20)
+Status.BackgroundTransparency = 1
+Status.Text = "Listo para auditar Pet Simulator!"
+Status.TextColor3 = Color3.fromRGB(180, 180, 180)
+Status.TextSize = 12
+Status.Font = Enum.Font.Gotham
 
 -- Lógica de Auditoría
 local full_dump = ""
 
-local function tableToString(t, indent)
-    indent = indent or ""
-    local str = "{\n"
+local function serialize(t, depth)
+    depth = depth or 0
+    if depth > 2 then return "{ ... }" end
+    local s = "{\n"
+    local indent = string.rep("  ", depth + 1)
     for k, v in pairs(t) do
         local key = tostring(k)
         local val = ""
         if type(v) == "table" then
-            val = tableToString(v, indent .. "  ")
+            val = serialize(v, depth + 1)
+        elseif type(v) == "function" then
+            val = "function()"
         else
             val = tostring(v) .. " (" .. type(v) .. ")"
         end
-        str = str .. indent .. "  [" .. key .. "] = " .. val .. ",\n"
+        s = s .. indent .. "[" .. key .. "] = " .. val .. ",\n"
     end
-    return str .. indent .. "}"
+    return s .. string.rep("  ", depth) .. "}"
 end
 
-local function auditMetatable(obj, name)
-    StatusLabel.Text = "Auditando: " .. name
-    local mt = getrawmetatable(obj)
+local function addEntry(name, data)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 45)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+    frame.Parent = Content
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 5)
     
+    local label = Instance.new("TextLabel")
+    label.Parent = frame
+    label.Size = UDim2.new(1, -10, 1, 0)
+    label.Position = UDim2.new(0, 5, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "MT: " .. name
+    label.TextColor3 = Color3.fromRGB(230, 230, 230)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Font = Enum.Font.Gotham
+    label.TextSize = 12
+    
+    full_dump = full_dump .. "\n--- " .. name .. " ---\n" .. data .. "\n"
+    Content.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y)
+end
+
+local function audit(obj, name)
+    if not obj then return end
+    local mt = getrawmetatable(obj)
     if mt then
-        local result = "--- Metatable de " .. name .. " ---\n"
-        
-        -- Intentar desbloquear si está lockeada
         if mt.__metatable then
-            result = result .. "[!] Detectado __metatable lock: " .. tostring(mt.__metatable) .. "\n"
-            -- Técnica de bypass: Acceso directo vía getrawmetatable ya ignora __metatable en la mayoría de executors
-            -- Pero si queremos modificarla, necesitamos setreadonly(mt, false)
-            local success, err = pcall(function()
+            pcall(function()
                 if setreadonly then setreadonly(mt, false) end
             end)
-            if success then
-                result = result .. "[+] Metatable desbloqueada (Read-only OFF)\n"
-            else
-                result = result .. "[-] Fallo al desbloquear: " .. tostring(err) .. "\n"
-            end
         end
-        
-        -- Extraer contenido
-        local content = tableToString(mt)
-        result = result .. content .. "\n\n"
-        
-        -- Mostrar en GUI
-        local Entry = Instance.new("TextLabel")
-        Entry.Parent = ContentScroll
-        Entry.Size = UDim2.new(1, 0, 0, 100)
-        Entry.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-        Entry.TextColor3 = Color3.fromRGB(255, 255, 255)
-        Entry.TextXAlignment = Enum.TextXAlignment.Left
-        Entry.TextYAlignment = Enum.TextYAlignment.Top
-        Entry.Text = name .. " MT Dump (Ver consola para detalles)"
-        Entry.TextWrapped = true
-        
-        full_dump = full_dump .. result
-        ContentScroll.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
-        print(result)
-    else
-        StatusLabel.Text = name .. " no tiene metatable."
+        addEntry(name, serialize(mt))
     end
 end
 
--- Botones
-CopyAllBtn.MouseButton1Click:Connect(function()
+ScanBtn.MouseButton1Click:Connect(function()
+    for _, v in pairs(Content:GetChildren()) do
+        if v:IsA("Frame") then v:Destroy() end
+    end
+    full_dump = ""
+    Status.Text = "Escaneando módulos de PS1..."
+    
+    -- 1. Auditar el objeto Game y Workspace
+    audit(game, "Game")
+    audit(workspace, "Workspace")
+    
+    -- 2. Buscar módulos específicos de Pet Simulator 1
+    -- En PS1, BIG Games suele usar un módulo central llamado 'Library'
+    local library = ReplicatedStorage:FindFirstChild("Library")
+    if library then
+        Status.Text = "Auditando Library..."
+        for _, m in pairs(library:GetDescendants()) do
+            if m:IsA("ModuleScript") then
+                local success, result = pcall(require, m)
+                if success and type(result) == "table" then
+                    audit(result, "Mod: " .. m.Name)
+                end
+            end
+        end
+    end
+    
+    -- 3. Buscar módulos de Network
+    local network = ReplicatedStorage:FindFirstChild("Network")
+    if network then
+        audit(network, "Network Folder")
+    end
+    
+    Status.Text = "Auditoría de PS1 completada."
+end)
+
+CopyBtn.MouseButton1Click:Connect(function()
     if setclipboard then
         setclipboard(full_dump)
-        StatusLabel.Text = "¡Copiado al portapapeles!"
+        Status.Text = "¡Todo copiado al portapapeles!"
     else
-        StatusLabel.Text = "Error: setclipboard no soportado."
+        Status.Text = "Error: setclipboard no disponible."
     end
-end)
-
-CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
-end)
-
--- Ejecución inicial (Ejemplos de auditoría)
-task.spawn(function()
-    -- Auditar objetos comunes que suelen tener metatables protegidas
-    auditMetatable(game, "Game Object")
-    auditMetatable(workspace, "Workspace")
-    auditMetatable(Players.LocalPlayer, "LocalPlayer")
-    
-    -- Ejemplo con una tabla custom bloqueada
-    local protected = setmetatable({}, {__metatable = "Esta metatable está bloqueada", secret = "12345"})
-    auditMetatable(protected, "Custom Protected Table")
-    
-    StatusLabel.Text = "Auditoría completada."
 end)
