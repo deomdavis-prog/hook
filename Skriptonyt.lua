@@ -1,11 +1,11 @@
 --[[
-    LEVEL 0 INTERCEPTOR - FINAL EDITION (WITH COPY ALL)
-    Diseñado para: Pet Simulator 1 (BIG Games)
+    PASSIVE INFILTRATOR - PS1 EDITION
+    Objetivo: Capturar metatables sin causar errores de 'nil index' en Save.
     
     Técnica:
-    - Hooking de __index para capturar la metatable real en el stack.
-    - Serializador Luau puro (Zero Dependencies).
-    - Botón de Copy All funcional para Delta Mobile.
+    - Hooking pasivo de __namecall (indetectable y no interfiere con la lógica).
+    - Escaneo de Garbage Collector (getgc) para encontrar tablas de BIG Games en memoria.
+    - Serialización segura que no activa trampas de lectura.
 ]]
 
 local _G1 = game:GetService("Players")
@@ -18,13 +18,13 @@ local _A2 = hookmetamethod or (hookfunction and function(obj, method, func)
     local mt = _A1(obj)
     return hookfunction(mt[method], func)
 end)
-local _A3 = debug.getupvalues or getupvalues
+local _A3 = getgc or debug.getregistry
 local _A4 = setclipboard or print
 local _A5 = debug.getconstants or getconstants
 
 -- GUI
 local _S1 = Instance.new("ScreenGui")
-_S1.Name = "L0_Final_" .. tostring(math.random(100, 999))
+_S1.Name = "Passive_" .. tostring(math.random(100, 999))
 _S1.Parent = _G2
 
 local _F1 = Instance.new("Frame")
@@ -40,7 +40,7 @@ Instance.new("UICorner", _F1).CornerRadius = UDim.new(0, 12)
 local _T1 = Instance.new("TextLabel")
 _T1.Size = UDim2.new(1, 0, 0, 45)
 _T1.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-_T1.Text = "L0 METATABLE INTERCEPTOR"
+_T1.Text = "PASSIVE METATABLE INFILTRATOR"
 _T1.TextColor3 = Color3.fromRGB(255, 255, 255)
 _T1.Font = Enum.Font.Code
 _T1.TextSize = 14
@@ -63,8 +63,8 @@ local _ST = Instance.new("TextLabel")
 _ST.Size = UDim2.new(1, -20, 0, 20)
 _ST.Position = UDim2.new(0, 10, 1, -80)
 _ST.BackgroundTransparency = 1
-_ST.Text = "Status: Waiting for Start"
-_ST.TextColor3 = Color3.fromRGB(0, 255, 150)
+_ST.Text = "Status: Passive Mode"
+_ST.TextColor3 = Color3.fromRGB(0, 200, 255)
 _ST.TextSize = 12
 _ST.Parent = _F1
 
@@ -81,14 +81,14 @@ Instance.new("UICorner", _B1).CornerRadius = UDim.new(0, 8)
 local _B2 = Instance.new("TextButton")
 _B2.Size = UDim2.new(0.45, 0, 0, 40)
 _B2.Position = UDim2.new(0.5, 0, 1, -50)
-_B2.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
-_B2.Text = "START HOOK"
+_B2.BackgroundColor3 = Color3.fromRGB(20, 50, 20)
+_B2.Text = "SCAN MEMORY"
 _B2.TextColor3 = Color3.fromRGB(255, 255, 255)
 _B2.Font = Enum.Font.GothamBold
 _B2.Parent = _F1
 Instance.new("UICorner", _B2).CornerRadius = UDim.new(0, 8)
 
--- Serializador Luau Puro
+-- Serializador Seguro
 local function _SER(v, d, s)
     d = d or 0
     s = s or {}
@@ -137,44 +137,43 @@ local function _LOG(n, c)
     _L1.CanvasSize = UDim2.new(0, 0, 0, _U1.AbsoluteContentSize.Y)
 end
 
+-- Escaneo de Memoria (getgc)
 _B2.MouseButton1Click:Connect(function()
-    _ST.Text = "Hooking __index..."
-    _B2.Visible = false
+    _ST.Text = "Scanning Memory..."
+    for _, v in pairs(_L1:GetChildren()) do if v:IsA("TextLabel") then v:Destroy() end end
+    _DUMP = ""
     
-    -- Hooking de __index para capturar la MT real
-    local old_index
-    old_index = _A2(game, "__index", function(self, key)
-        local mt = _A1(self)
-        if mt and tostring(mt.__metatable) ~= "The metatable is locked" then
-            _LOG("REAL_MT_CAPTURED", _SER(mt))
-        end
-        return old_index(self, key)
-    end)
-    
-    -- Escaneo de Upvalues en Library
-    local lib = _G3:FindFirstChild("Library")
-    if lib then
-        for _, m in pairs(lib:GetDescendants()) do
-            if m:IsA("ModuleScript") then
-                pcall(function()
-                    local res = require(m)
-                    if type(res) == "table" then
-                        for _, f in pairs(res) do
-                            if type(f) == "function" then
-                                local ups = _A3(f)
-                                for i, up in pairs(ups) do
-                                    if type(up) == "table" then
-                                        _LOG(m.Name .. "_UP_" .. i, _SER(up))
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end)
+    -- Buscamos tablas en el Garbage Collector que parezcan de BIG Games
+    local objects = _A3()
+    for _, obj in pairs(objects) do
+        if type(obj) == "table" then
+            local is_target = false
+            pcall(function()
+                if obj.Network or obj.Library or obj.Save or obj.GetPetData then
+                    is_target = true
+                end
+            end)
+            
+            if is_target then
+                _LOG("MemoryTable_" .. tostring(math.random(1000, 9999)), _SER(obj))
             end
         end
     end
-    _ST.Text = "Hook Active. Move or open menus!"
+    
+    -- Hooking de __namecall para capturar metatables en uso
+    pcall(function()
+        local old_nc
+        old_nc = _A2(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            local mt = _A1(self)
+            if mt and tostring(mt.__metatable) ~= "The metatable is locked" then
+                _LOG("NAMECALL_MT_" .. method, _SER(mt))
+            end
+            return old_nc(self, ...)
+        end)
+    end)
+    
+    _ST.Text = "Scan Complete. Check Logs."
 end)
 
 _B1.MouseButton1Click:Connect(function()
