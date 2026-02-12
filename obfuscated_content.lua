@@ -65,16 +65,15 @@ local function deepSerialize(value, indent, seen)
 end
 
 local function writeDataToFile(filename, data)
-    local success, err = pcall(function()
-        if writefile then
-            writefile(filename, data)
+    if writefile then
+        local success, err = pcall(writefile, filename, data)
+        if success then
             log("Datos guardados en: " .. filename)
         else
-            log("Advertencia: 'writefile' no disponible. Los datos no se guardarán en archivo.", "warn")
+            log("Error al intentar escribir en archivo (writefile): " .. tostring(err), "error")
         end
-    end)
-    if not success then
-        log("Error al intentar escribir en archivo: " .. tostring(err), "error")
+    else
+        log("Advertencia: 'writefile' no disponible. Los datos no se guardarán en archivo.", "warn")
     end
 end
 
@@ -83,7 +82,14 @@ local function flushRemoteLog()
         local HttpService = game:GetService("HttpService")
         if HttpService then
             local currentContent = "[]"
-            local success, content = pcall(readfile, VelocityAuditX_V3.Settings.RemoteLogFileName)
+            local success, content
+            if readfile then
+                success, content = pcall(readfile, VelocityAuditX_V3.Settings.RemoteLogFileName)
+            else
+                success = false
+                content = "readfile no disponible"
+                log("Advertencia: 'readfile' no disponible. No se puede leer el log existente.", "warn")
+            end
             if success and content and #content > 0 then
                 currentContent = content
             end
@@ -259,10 +265,12 @@ local function InitializeSpy()
             -- NUEVO: Analizar el remoto en busca de vulnerabilidades con el motor heurístico
             local vulnerabilities, remoteCategory = universalHeuristicAnalysis(self.Name, method, args)
             if VelocityAuditX_V3.Settings.HeuristicAnalysisEnabled and #vulnerabilities > 0 then
+                print("--------------------------------")
                 log(string.format("¡VULNERABILIDAD DETECTADA en remoto %s (Categoría: %s)!", self.Name, remoteCategory), "error")
                 for _, vuln in ipairs(vulnerabilities) do
                     log(string.format("  Tipo: %s - Descripción: %s", vuln.type, vuln.description), "error")
                 end
+                print("--------------------------------")
             end
 
             -- Añadir el evento remoto al buffer
