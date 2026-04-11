@@ -1,233 +1,116 @@
 --[[
-    ╔══════════════════════════════════════════════════════════════════════╗
-    ║   OMNI-EXTRACTOR V8 - AUTÓNOMO (DUMP + URL MONITOR INTEGRADO)        ║
-    ║   Ejecuta una vez -> Extrae toda lógica cliente + captura URLs       ║
-    ╚══════════════════════════════════════════════════════════════════════╝
+    ╔══════════════════════════════════════════════════════════════╗
+    ║        OMNI-DUMP V12 - SAFE-DRIVE (AUTO-PURGE)               ║
+    ║   Control: Botón dinámico STOP/START + Purga de RAM.         ║
+    ║   Ingeniería: Persistencia de índice y vaciado de Buffer.    ║
+    ╚══════════════════════════════════════════════════════════════╝
 ]]
 
--- [ CONFIGURACIÓN ]
-local FILE_NAME = "CLIENT_FULL_DUMP_" .. game.PlaceId .. ".txt"
-local DISABLE_SAFETY_PAUSES = true       -- false = más lento pero más estable
-local ENABLE_HTTP_MONITOR = true         -- true = capturar URLs de peticiones HTTP
+local FILE_NAME = "SAFE_DRIVE_DUMP_" .. game.PlaceId .. ".txt"
+local decompiler = decompile or (delta and delta.decompile)
 
--- [ API DEL EJECUTOR - DETECCIÓN MEJORADA ]
-local decompiler
-local writefile_func = writefile or (delta and delta.writefile) or (syn and syn.write) or (fluxus and fluxus.writefile)
-local appendfile_func = appendfile or (delta and delta.appendfile) or (fluxus and fluxus.appendfile)
-local isfile_func = isfile or (delta and delta.isfile) or (syn and syn.isfile)
-local getgc_func = getgc or (delta and delta.getgc)
-local getloadedmodules_func = getloadedmodules or (delta and delta.getloadedmodules)
+if not decompiler then return warn("❌ Error: API de descompilación no activa.") end
 
-if not writefile_func or not appendfile_func then
-    return print("❌ [ERROR]: Funciones de archivo no disponibles.")
-end
+-- [ VARIABLES DE ESTADO ]
+local isRunning = false
+local currentIdx = 1
+local targets = {}
+local buffer = {}
+local batch_size = 30 -- Lote óptimo para velocidad/estabilidad
 
--- [ DETECCIÓN DEL DESCOMPILADOR ]
-pcall(function()
-    decompiler = delta and delta.decompile
-    if not decompiler then decompiler = decompile end
-    if not decompiler and getgc_func then
-        for _, v in pairs(getgc_func()) do
-            if type(v) == "function" and pcall(function() return v("print") end) then
-                decompiler = v
-                break
-            end
-        end
+-- [ UI DE CONTROL - DRAGGABLE ]
+local sg = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local frame = Instance.new("Frame", sg)
+local btn = Instance.new("TextButton", frame)
+
+frame.Size = UDim2.new(0, 140, 0, 50)
+frame.Position = UDim2.new(0.5, -70, 0.1, 0)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BorderSizePixel = 2
+frame.Active = true
+frame.Draggable = true -- Para moverlo si estorba en la UI del juego
+
+btn.Size = UDim2.new(1, -10, 1, -10)
+btn.Position = UDim2.new(0, 5, 0, 5)
+btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+btn.Text = "INICIAR"
+btn.TextColor3 = Color3.new(1, 1, 1)
+btn.Font = Enum.Font.Code
+btn.TextSize = 16
+
+-- [ FUNCIÓN DE LIMPIEZA CRÍTICA ]
+local function PurgeMemory()
+    print("🧹 [!] STOP IDENTIFICADO: Iniciando purga de emergencia...")
+    
+    -- 1. Vaciar lo que esté en el buffer ahora mismo al archivo
+    if #buffer > 0 then
+        pcall(function() appendfile(FILE_NAME, table.concat(buffer)) end)
+        table.clear(buffer)
     end
-end)
-
-if not decompiler then
-    print("⚠️ [AVISO]: Descompilador no encontrado. Se extraerá solo metadatos.")
+    
+    -- 2. Forzar limpieza de basura de Lua
+    for i = 1, 3 do
+        collectgarbage("collect")
+        task.wait(0.1)
+    end
+    print("✅ RAM Liberada. Estado: Estable para continuar.")
 end
 
--- [ FUNCIONES DE ARCHIVO ]
-local function SafeWrite(content)
-    pcall(function()
-        if not isfile_func(FILE_NAME) then
-            writefile_func(FILE_NAME, "=== VOLCADO AUTÓNOMO - " .. os.date() .. " ===\n")
-            writefile_func(FILE_NAME, "PlaceId: " .. game.PlaceId .. " | Game: " .. game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name .. "\n\n")
+-- [ MOTOR DE DUMP CON BUFFER Y SEGURIDAD ]
+local function StartProcess()
+    if #targets == 0 then
+        print("🔍 Escaneando scripts iniciales...")
+        for _, v in ipairs(game:GetDescendants()) do
+            if v:IsA("LocalScript") or v:IsA("ModuleScript") then table.insert(targets, v) end
         end
-        appendfile_func(FILE_NAME, content)
-    end)
-end
-
--- [ EXTRACCIÓN DE CÓDIGO FUENTE ]
-local function ExtractSource(obj)
-    local header = "\n" .. string.rep("=", 60) .. "\n"
-    header = header .. "NOMBRE: " .. tostring(obj.Name) .. "\n"
-    header = header .. "RUTA: " .. obj:GetFullName() .. "\n"
-    header = header .. "CLASE: " .. obj.ClassName .. "\n"
-    header = header .. string.rep("=", 60) .. "\n"
-
-    if not decompiler then
-        return header .. "-- [NO DECOMPILADOR] Bytecode no extraíble.\n"
+        writefile(FILE_NAME, "== START DUMP (PLACE " .. game.PlaceId .. ") ==\n")
     end
 
-    local success, result = pcall(function()
-        local bytecode = nil
-        pcall(function() bytecode = obj.Bytecode end)
-        if bytecode then
-            return decompiler(bytecode)
-        else
-            return decompiler(obj)
-        end
-    end)
+    isRunning = true
+    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
 
-    if success and result and #result > 0 then
-        return header .. result .. "\n"
+    while isRunning and currentIdx <= #targets do
+        local scr = targets[currentIdx]
+        btn.Text = "STOP [" .. currentIdx .. "]"
+
+        -- Descompilación
+        local success, source = pcall(function() return decompiler(scr) end)
+        local data = "\n\n-- PATH: " .. scr:GetFullName() .. "\n" .. (success and source or "-- [ERROR]")
+        
+        table.insert(buffer, data)
+
+        -- Lógica de escritura por lotes
+        if #buffer >= batch_size or currentIdx == #targets then
+            pcall(function() appendfile(FILE_NAME, table.concat(buffer)) end)
+            table.clear(buffer)
+            task.wait(0.01) -- Respiro mínimo para el bus de datos
+        end
+
+        currentIdx = currentIdx + 1
+        
+        -- Si no hay pausa, el botón no se puede clickear (Yield)
+        if currentIdx % 5 == 0 then task.wait() end 
+    end
+
+    if currentIdx > #targets then
+        btn.Text = "FINISH"
+        btn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        isRunning = false
+    end
+end
+
+-- [ EVENTO DEL BOTÓN ]
+btn.MouseButton1Click:Connect(function()
+    if isRunning then
+        isRunning = false
+        btn.Text = "PURGANDO..."
+        btn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+        PurgeMemory()
+        btn.Text = "RESUME"
+        btn.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
     else
-        return header .. "-- [ERROR]: Código protegido o inaccesible.\n"
+        task.spawn(StartProcess)
     end
-end
-
--- [ MONITOR DE PETICIONES HTTP - AUTÓNOMO ]
-local function InstallHttpMonitor()
-    if not ENABLE_HTTP_MONITOR then return end
-
-    SafeWrite("\n\n" .. string.rep("#", 70) .. "\n")
-    SafeWrite("=== SECCIÓN: MONITOR DE PETICIONES HTTP (Captura automática de URLs) ===\n")
-    SafeWrite("(Los registros aparecerán aquí cuando se realice una solicitud)\n")
-    SafeWrite(string.rep("#", 70) .. "\n")
-
-    local requestFuncs = {"syn.request", "http_request", "request", "http.request", "fluxus.request"}
-    local targetFunc, funcName = nil, nil
-
-    for _, name in ipairs(requestFuncs) do
-        local s, f = pcall(function() return loadstring("return " .. name)() end)
-        if s and type(f) == "function" then
-            targetFunc = f
-            funcName = name
-            break
-        end
-    end
-
-    if not targetFunc then
-        SafeWrite("⚠️ No se detectó ninguna función de solicitud HTTP en este ejecutor.\n")
-        return
-    end
-
-    local oldRequest = targetFunc
-    local hooked = function(options)
-        local urlStr = "nil"
-        local fullOpts = "nil"
-
-        if type(options) == "table" then
-            urlStr = options.Url or options.Url or options.url or options["Url"] or options["url"] or "URL_NO_ENCONTRADA"
-            fullOpts = ""
-            for k, v in pairs(options) do
-                fullOpts = fullOpts .. tostring(k) .. "=" .. tostring(v) .. "; "
-            end
-        elseif type(options) == "string" then
-            urlStr = options
-            fullOpts = "string: " .. options
-        end
-
-        -- Registrar en archivo
-        SafeWrite("\n[HTTP] " .. os.date("%X") .. " | Función: " .. funcName .. "\n")
-        SafeWrite("   URL: " .. urlStr .. "\n")
-        SafeWrite("   Opciones: " .. fullOpts .. "\n")
-
-        -- Ejecutar original (incluso si falla por URL inválida)
-        local success, result = pcall(oldRequest, options)
-        if not success then
-            SafeWrite("   ❌ Error en la solicitud: " .. tostring(result) .. "\n")
-        else
-            SafeWrite("   ✅ Solicitud completada.\n")
-        end
-        return result
-    end
-
-    -- Reemplazar la función globalmente
-    pcall(function()
-        local env = getfenv()
-        for _, name in ipairs(requestFuncs) do
-            if env[name] then
-                env[name] = hooked
-                print("🔗 HTTP Monitor instalado en '" .. name .. "'")
-                SafeWrite("🔗 HTTP Monitor activo en función: " .. name .. "\n")
-                break
-            end
-        end
-    end)
-end
-
--- [ ESCANEO PROFUNDO DE SCRIPTS ]
-local function StartDeepScan()
-    print("🚀 OMNI-EXTRACTOR V8 - Iniciando extracción autónoma...")
-
-    SafeWrite("\n\n=== INICIO DE EXTRACCIÓN DE LÓGICA CLIENTE ===\n")
-    SafeWrite("Hora: " .. os.date() .. "\n\n")
-
-    local targets = {}
-    local targetMap = {}
-
-    -- 1. Scripts en el árbol del juego
-    for _, v in ipairs(game:GetDescendants()) do
-        if v:IsA("LocalScript") or v:IsA("ModuleScript") then
-            if not targetMap[v] then
-                targetMap[v] = true
-                table.insert(targets, v)
-            end
-        end
-    end
-
-    -- 2. Módulos cargados en memoria
-    if getloadedmodules_func then
-        pcall(function()
-            for _, v in ipairs(getloadedmodules_func()) do
-                if type(v) == "userdata" and typeof(v) == "Instance" then
-                    if v:IsA("ModuleScript") and not targetMap[v] then
-                        targetMap[v] = true
-                        table.insert(targets, v)
-                    end
-                end
-            end
-        end)
-    end
-
-    -- 3. Basurero (GC)
-    if getgc_func then
-        pcall(function()
-            for _, v in pairs(getgc_func()) do
-                if type(v) == "userdata" then
-                    pcall(function()
-                        if typeof(v) == "Instance" and (v:IsA("LocalScript") or v:IsA("ModuleScript")) then
-                            if not targetMap[v] then
-                                targetMap[v] = true
-                                table.insert(targets, v)
-                            end
-                        end
-                    end)
-                end
-            end
-        end)
-    end
-
-    print("📜 Scripts encontrados: " .. #targets)
-
-    for i, scr in ipairs(targets) do
-        local data = ExtractSource(scr)
-        SafeWrite(data)
-
-        if not DISABLE_SAFETY_PAUSES then
-            task.wait(1)
-            if i % 10 == 0 then task.wait(2) end
-        end
-    end
-
-    SafeWrite("\n\n=== EXTRACCIÓN FINALIZADA. Total scripts: " .. #targets .. " ===\n")
-    print("✅ Extracción de scripts completada. Archivo: " .. FILE_NAME)
-end
-
--- [ INICIO AUTÓNOMO ]
-task.spawn(function()
-    task.wait(1)
-    -- Instalar monitor HTTP primero (quedará en segundo plano)
-    InstallHttpMonitor()
-    -- Iniciar volcado profundo
-    StartDeepScan()
-    print("🎯 OMNI-EXTRACTOR V8 está trabajando en segundo plano. Revisa el archivo al finalizar.")
 end)
 
-print("📁 Archivo de salida: " .. FILE_NAME)
-print("⏳ El proceso puede tardar varios minutos. No cierres el juego.")
+print("🎯 Omni-Dump V12 Cargado. Botón listo en pantalla.")
