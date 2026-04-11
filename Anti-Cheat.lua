@@ -1,70 +1,99 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+--[[
+    ╔══════════════════════════════════════════════════════════════╗
+    ║       EXPERIMENTAL TOTAL-DUMP (ZERO FILTERS) - DELTA         ║
+    ║   ADVERTENCIA: Este modo ignora protocolos de seguridad de   ║
+    ║   memoria para intentar capturar el 100% del cliente.        ║
+    ╚══════════════════════════════════════════════════════════════╝
+]]
 
--- [[ ESTADO Y LOGS ]]
-local LogData = ""
-local LogCount = 0
+if not saveinstance then return warn("❌ Delta API no disponible.") end
 
--- [[ VENTANA PRINCIPAL ]]
-local Window = Rayfield:CreateWindow({
-   Name = "Delta Data Interceptor",
-   LoadingTitle = "Cargando Hooks...",
-   LoadingSubtitle = "by Gemini",
-   ConfigurationSaving = { Enabled = false }
-})
+-- [ CONFIGURACIÓN DE FUERZA BRUTA ]
+local FullConfig = {
+    FileName = "TOTAL_DUMP_" .. game.PlaceId .. "_" .. os.date("%H%M%S"),
+    Decompile = true,
+    DecompileTimeout = 9999,        -- Tiempo casi infinito por script
+    DoNotDecompileAds = false,      -- Descompilar incluso basura publicitaria
+    IsolatePlayers = false,         -- GUARDAR avatares, ropa y accesorios de todos
+    RemovePlayerCharacters = false, -- Mantener cuerpos físicos en el Workspace
+    SaveCacheProfile = false,       -- Forzar re-lectura de cada instancia
+    IgnoreDefaultProps = false,     -- GUARDAR todas las propiedades (archivo muy pesado)
+    ExtraInstances = {},
+    -- Lista de ignorados reducida al mínimo absoluto (solo servicios que crashean el motor C++)
+    IgnoreList = {
+        "LogService", 
+        "Stats", 
+        "VoiceChatService", 
+        "CoreGui" -- CoreGui se deja fuera para evitar errores de permisos de lectura de Roblox
+    }
+}
 
-local MainTab = Window:CreateTab("Interceptor", 4483362458) -- Icono de red
-
--- [[ ELEMENTOS DE LA INTERFAZ ]]
-local LogLabel = MainTab:CreateLabel("Esperando datos...")
-
-MainTab:CreateButton({
-   Name = "Copiar todos los Logs (Clipboard)",
-   Callback = function()
-       setclipboard(LogData)
-       Rayfield:Notify({Title = "Copiado", Content = "Logs copiados al portapapeles.", Duration = 3})
-   end,
-})
-
-MainTab:CreateButton({
-   Name = "Guardar en logs_interceptor.txt",
-   Callback = function()
-       writefile("logs_interceptor.txt", LogData)
-       Rayfield:Notify({Title = "Guardado", Content = "Archivo creado en la carpeta 'workspace'.", Duration = 3})
-   end,
-})
-
-MainTab:CreateButton({
-   Name = "Limpiar Consola",
-   Callback = function()
-       LogData = ""
-       LogCount = 0
-       LogLabel:Set("Consola limpia.")
-   end,
-})
-
--- [[ LÓGICA DEL HOOK ]]
-local oldNamecall
-oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    local method = getnamecallmethod()
-    local args = {...}
-
-    if not checkcaller() and (method == "FireServer" or method == "InvokeServer") then
-        LogCount = LogCount + 1
-        local timestamp = os.date("%H:%M:%S")
-        local entry = string.format("[%s] #%d | Remote: %s | Método: %s\nArgs: %s\n\n", 
-            timestamp, LogCount, self.Name, method, game:GetService("HttpService"):JSONEncode(args))
-        
-        -- Acumular datos para copiar/guardar
-        LogData = LogData .. entry
-        
-        -- Actualizar etiqueta en la UI (solo los últimos datos)
-        LogLabel:Set("Último: " .. self.Name .. " (" .. timestamp .. ")")
-        
-        -- También lo mandamos a la consola clásica por si acaso
-        print(entry)
+-- [[ 1. INYECCIÓN TOTAL DE NIL INSTANCES ]]
+local function DeepNilRecovery()
+    print("🧬 Escaneando ADN del juego (Nil Recovery)...")
+    local folder = Instance.new("Folder")
+    folder.Name = "TOTAL_RECOVERY_BIN"
+    folder.Parent = game:GetService("ReplicatedStorage")
+    
+    if getnilinstances then
+        local nilInsts = getnilinstances()
+        for _, obj in ipairs(nilInsts) do
+            pcall(function()
+                -- Clonación sin filtros excepto por el propio juego
+                if obj ~= game and obj ~= folder then
+                    obj:Clone().Parent = folder
+                end
+            end)
+        end
     end
+    table.insert(FullConfig.ExtraInstances, folder)
+    print("✅ Inyección de Nil completada.")
+end
 
-    return oldNamecall(self, ...)
-end)
+-- [[ 2. PREPARACIÓN DE ENTORNO ]]
+local function MaximizePriority()
+    print("⚡ Elevando prioridad de proceso...")
+    settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Disabled
+    -- Limpieza inicial para dar espacio al buffer de guardado
+    collectgarbage("setpause", 100)
+    collectgarbage("setstepmul", 5000)
+    collectgarbage("collect")
+end
 
-Rayfield:Notify({Title = "Hook Activo", Content = "Interceptor listo para capturar datos.", Duration = 5})
+-- [[ 3. EJECUCIÓN DEL VOLCADO ]]
+local function ExecuteTotalDump()
+    print("🔥 INICIANDO GUARDADO TOTAL. EL DISPOSITIVO PUEDE CONGELARSE.")
+    print("⏳ Tiempo estimado: 1-5 minutos dependiendo del mapa.")
+    
+    task.wait(2)
+    
+    local startTime = tick()
+    
+    -- Usamos un hilo de alta prioridad
+    task.spawn(function()
+        local success, err = pcall(function()
+            saveinstance(FullConfig)
+        end)
+        
+        if success then
+            local finishTime = math.floor(tick() - startTime)
+            print("\n" .. string.rep("=", 35))
+            print("🏆 VOLCADO TOTAL COMPLETADO")
+            print("📁 Archivo: " .. FullConfig.FileName)
+            print("⏱️ Duración: " .. finishTime .. "s")
+            print("⚠️ Revisa tu carpeta de Delta para el archivo .rbxl")
+            print(string.rep("=", 35))
+        else
+            warn("❌ CRASH DEL MOTOR NATIVO: " .. tostring(err))
+            print("Sugerencia: Si falló por RAM, no hay nada más que hacer en este dispositivo.")
+        end
+        
+        -- Limpieza de la carpeta temporal post-proceso
+        pcall(function() game:GetService("ReplicatedStorage").TOTAL_RECOVERY_BIN:Destroy() end)
+    end)
+end
+
+-- [ SECUENCIA ]
+MaximizePriority()
+DeepNilRecovery()
+ExecuteTotalDump()
