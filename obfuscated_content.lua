@@ -5,6 +5,7 @@
 ]]
 
 -- [ CONFIGURACIÓN CENTRAL ]
+local _date = pcall(function() return os.date end)
 local CONFIG = {
     FILE_NAME    = "DUMP_" .. game.PlaceId .. ".txt",
     BATCH_SIZE   = 20,       -- Scripts por lote antes de escribir
