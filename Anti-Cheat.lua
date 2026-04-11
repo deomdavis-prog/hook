@@ -1,99 +1,89 @@
 --[[
     ╔══════════════════════════════════════════════════════════════╗
-    ║       EXPERIMENTAL TOTAL-DUMP (ZERO FILTERS) - DELTA         ║
-    ║   ADVERTENCIA: Este modo ignora protocolos de seguridad de   ║
-    ║   memoria para intentar capturar el 100% del cliente.        ║
+    ║        OMNI-DUMPER V3 (ULTIMATE ADAPTIVE EDITION)            ║
+    ║   Bypass de API, Recuperación Total y Prioridad Crítica      ║
     ╚══════════════════════════════════════════════════════════════╝
 ]]
 
-if not saveinstance then return warn("❌ Delta API no disponible.") end
+-- [ 1. BUSCADOR DE API NATIVA ]
+local save_func = saveinstance or (delta and delta.saveinstance) or syn_save_instance or (fluxus and fluxus.save_instance)
 
--- [ CONFIGURACIÓN DE FUERZA BRUTA ]
-local FullConfig = {
-    FileName = "TOTAL_DUMP_" .. game.PlaceId .. "_" .. os.date("%H%M%S"),
+if not save_func then
+    print("⚠️ API estándar no hallada. Intentando puente alternativo...")
+    -- Intento de recuperación si la función está oculta en el entorno global
+    for k, v in pairs(getfenv()) do
+        if k:lower():find("save") and k:lower():find("inst") then
+            save_func = v
+            print("✅ API recuperada bajo el nombre: " .. k)
+            break
+        end
+    end
+end
+
+if not save_func then
+    return warn("❌ [ERROR FATAL]: Delta ha deshabilitado 'saveinstance' en esta build. No se puede proceder sin el motor C++.")
+end
+
+-- [ 2. CONFIGURACIÓN SIN LÍMITES ]
+local DumpConfig = {
+    FileName = "FULL_EXTRACT_" .. game.PlaceId .. "_" .. math.random(1000, 9999),
     Decompile = true,
-    DecompileTimeout = 9999,        -- Tiempo casi infinito por script
-    DoNotDecompileAds = false,      -- Descompilar incluso basura publicitaria
-    IsolatePlayers = false,         -- GUARDAR avatares, ropa y accesorios de todos
-    RemovePlayerCharacters = false, -- Mantener cuerpos físicos en el Workspace
-    SaveCacheProfile = false,       -- Forzar re-lectura de cada instancia
-    IgnoreDefaultProps = false,     -- GUARDAR todas las propiedades (archivo muy pesado)
-    ExtraInstances = {},
-    -- Lista de ignorados reducida al mínimo absoluto (solo servicios que crashean el motor C++)
-    IgnoreList = {
-        "LogService", 
-        "Stats", 
-        "VoiceChatService", 
-        "CoreGui" -- CoreGui se deja fuera para evitar errores de permisos de lectura de Roblox
-    }
+    DecompileTimeout = 10000, -- Tiempo extremo
+    IsolatePlayers = false,   -- No aislar nada, copiar todo
+    SaveCacheProfile = false,
+    IgnoreDefaultProps = false,
+    -- Solo omitimos lo que causa cierre inmediato por falta de permisos de Roblox
+    IgnoreList = {"LogService", "Stats", "VoiceChatService", "VersionControlService"}
 }
 
--- [[ 1. INYECCIÓN TOTAL DE NIL INSTANCES ]]
-local function DeepNilRecovery()
-    print("🧬 Escaneando ADN del juego (Nil Recovery)...")
-    local folder = Instance.new("Folder")
-    folder.Name = "TOTAL_RECOVERY_BIN"
-    folder.Parent = game:GetService("ReplicatedStorage")
+-- [ 3. RECOLECCIÓN PROFUNDA DE NIL ]
+local function GetEverything()
+    local container = Instance.new("Folder")
+    container.Name = "CORE_DUMP_RECOVERY"
+    container.Parent = game:GetService("ReplicatedStorage")
     
     if getnilinstances then
-        local nilInsts = getnilinstances()
-        for _, obj in ipairs(nilInsts) do
+        print("🌀 Extrayendo instancias del Limbo (Nil)...")
+        for _, obj in ipairs(getnilinstances()) do
             pcall(function()
-                -- Clonación sin filtros excepto por el propio juego
-                if obj ~= game and obj ~= folder then
-                    obj:Clone().Parent = folder
+                if obj ~= game and not obj:IsDescendantOf(game) then
+                    obj:Clone().Parent = container
                 end
             end)
         end
     end
-    table.insert(FullConfig.ExtraInstances, folder)
-    print("✅ Inyección de Nil completada.")
+    return container
 end
 
--- [[ 2. PREPARACIÓN DE ENTORNO ]]
-local function MaximizePriority()
-    print("⚡ Elevando prioridad de proceso...")
-    settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Disabled
-    -- Limpieza inicial para dar espacio al buffer de guardado
-    collectgarbage("setpause", 100)
-    collectgarbage("setstepmul", 5000)
-    collectgarbage("collect")
-end
-
--- [[ 3. EJECUCIÓN DEL VOLCADO ]]
-local function ExecuteTotalDump()
-    print("🔥 INICIANDO GUARDADO TOTAL. EL DISPOSITIVO PUEDE CONGELARSE.")
-    print("⏳ Tiempo estimado: 1-5 minutos dependiendo del mapa.")
+-- [ 4. PROTOCOLO DE EJECUCIÓN ]
+local function Execute()
+    print("🔥 PREPARANDO VOLCADO TOTAL...")
+    local recovery = GetEverything()
     
-    task.wait(2)
+    -- Ajuste de rendimiento para evitar que el OS mate a Delta
+    if setfpscap then setfpscap(10) end -- Baja los FPS para dedicar la CPU al Dump
     
-    local startTime = tick()
+    task.wait(1)
     
-    -- Usamos un hilo de alta prioridad
-    task.spawn(function()
-        local success, err = pcall(function()
-            saveinstance(FullConfig)
-        end)
-        
-        if success then
-            local finishTime = math.floor(tick() - startTime)
-            print("\n" .. string.rep("=", 35))
-            print("🏆 VOLCADO TOTAL COMPLETADO")
-            print("📁 Archivo: " .. FullConfig.FileName)
-            print("⏱️ Duración: " .. finishTime .. "s")
-            print("⚠️ Revisa tu carpeta de Delta para el archivo .rbxl")
-            print(string.rep("=", 35))
-        else
-            warn("❌ CRASH DEL MOTOR NATIVO: " .. tostring(err))
-            print("Sugerencia: Si falló por RAM, no hay nada más que hacer en este dispositivo.")
-        end
-        
-        -- Limpieza de la carpeta temporal post-proceso
-        pcall(function() game:GetService("ReplicatedStorage").TOTAL_RECOVERY_BIN:Destroy() end)
+    local success, err = pcall(function()
+        save_func(DumpConfig)
     end)
+    
+    if success then
+        print("\n" .. string.rep("⭐", 10))
+        print("VOLCADO EXITOSO")
+        print("Archivo guardado en la carpeta de Delta")
+        print(string.rep("⭐", 10))
+    else
+        warn("❌ Error en el motor: " .. tostring(err))
+        print("Intentando volcado de emergencia (Sin Scripts)...")
+        DumpConfig.Decompile = false
+        pcall(function() save_func(DumpConfig) end)
+    end
+    
+    if setfpscap then setfpscap(60) end
+    pcall(function() recovery:Destroy() end)
 end
 
--- [ SECUENCIA ]
-MaximizePriority()
-DeepNilRecovery()
-ExecuteTotalDump()
+-- Iniciar proceso
+Execute()
