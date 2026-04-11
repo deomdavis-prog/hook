@@ -95,9 +95,9 @@ end
 local function PurgeSystem()
     setBtn("LIMPIANDO...", 255, 140, 0)
     setStatus("Purgando memoria...")
-    flushBuffer()  -- Guarda pendientes antes de limpiar
+    flushBuffer()
     for i = 1, CONFIG.GC_RUNS do
-        collectgarbage("collect")
+        gcinfo()          -- Delta mobile: usa gcinfo() en lugar de collectgarbage("collect")
         task.wait(CONFIG.GC_DELAY)
     end
     setStatus("Memoria liberada.")
