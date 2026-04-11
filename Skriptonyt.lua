@@ -1,116 +1,121 @@
 --[[
     ╔══════════════════════════════════════════════════════════════╗
-    ║        OMNI-DUMP V12 - SAFE-DRIVE (AUTO-PURGE)               ║
-    ║   Control: Botón dinámico STOP/START + Purga de RAM.         ║
-    ║   Ingeniería: Persistencia de índice y vaciado de Buffer.    ║
+    ║        OMNI-DUMP V13 - ZERO-ERROR (ULTRA REILIENT)           ║
+    ║   Fix: Manejo de errores de descompilación y Buffer TXT.     ║
+    ║   Control: Botón inteligente con auto-limpieza de caché.     ║
     ╚══════════════════════════════════════════════════════════════╝
 ]]
 
-local FILE_NAME = "SAFE_DRIVE_DUMP_" .. game.PlaceId .. ".txt"
+local FILE_NAME = "FINAL_DEEP_DUMP_" .. game.PlaceId .. ".txt"
 local decompiler = decompile or (delta and delta.decompile)
 
-if not decompiler then return warn("❌ Error: API de descompilación no activa.") end
+if not decompiler then return warn("❌ Error: Decompiler no hallado.") end
 
 -- [ VARIABLES DE ESTADO ]
 local isRunning = false
 local currentIdx = 1
 local targets = {}
-local buffer = {}
-local batch_size = 30 -- Lote óptimo para velocidad/estabilidad
 
--- [ UI DE CONTROL - DRAGGABLE ]
+-- [ UI DE CONTROL MEJORADA ]
 local sg = Instance.new("ScreenGui", game:GetService("CoreGui"))
 local frame = Instance.new("Frame", sg)
 local btn = Instance.new("TextButton", frame)
+local status = Instance.new("TextLabel", frame)
 
-frame.Size = UDim2.new(0, 140, 0, 50)
-frame.Position = UDim2.new(0.5, -70, 0.1, 0)
-frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.Size = UDim2.new(0, 160, 0, 70)
+frame.Position = UDim2.new(0.5, -80, 0.1, 0)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 frame.BorderSizePixel = 2
+frame.Draggable = true
 frame.Active = true
-frame.Draggable = true -- Para moverlo si estorba en la UI del juego
 
-btn.Size = UDim2.new(1, -10, 1, -10)
+btn.Size = UDim2.new(1, -10, 0, 35)
 btn.Position = UDim2.new(0, 5, 0, 5)
-btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-btn.Text = "INICIAR"
+btn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+btn.Text = "INICIAR DUMP"
 btn.TextColor3 = Color3.new(1, 1, 1)
 btn.Font = Enum.Font.Code
-btn.TextSize = 16
+btn.TextSize = 14
 
--- [ FUNCIÓN DE LIMPIEZA CRÍTICA ]
-local function PurgeMemory()
-    print("🧹 [!] STOP IDENTIFICADO: Iniciando purga de emergencia...")
-    
-    -- 1. Vaciar lo que esté en el buffer ahora mismo al archivo
-    if #buffer > 0 then
-        pcall(function() appendfile(FILE_NAME, table.concat(buffer)) end)
-        table.clear(buffer)
+status.Size = UDim2.new(1, 0, 0, 20)
+status.Position = UDim2.new(0, 0, 1, -25)
+status.BackgroundTransparency = 1
+status.Text = "Esperando..."
+status.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+status.Font = Enum.Font.SourceSans
+status.TextSize = 12
+
+-- [ ESCRITURA SEGURA A PRUEBA DE CRASH ]
+local function SafeAppend(content)
+    local success, err = pcall(function()
+        if not readfile(FILE_NAME) then
+            writefile(FILE_NAME, "-- DUMP INICIADO\n")
+        end
+        appendfile(FILE_NAME, tostring(content))
+    end)
+    if not success then
+        warn("⚠️ Error al escribir en archivo: " .. tostring(err))
     end
-    
-    -- 2. Forzar limpieza de basura de Lua
-    for i = 1, 3 do
-        collectgarbage("collect")
-        task.wait(0.1)
-    end
-    print("✅ RAM Liberada. Estado: Estable para continuar.")
 end
 
--- [ MOTOR DE DUMP CON BUFFER Y SEGURIDAD ]
+-- [ MOTOR DE EXTRACCIÓN UNITARIO ]
 local function StartProcess()
     if #targets == 0 then
-        print("🔍 Escaneando scripts iniciales...")
+        status.Text = "Escaneando..."
         for _, v in ipairs(game:GetDescendants()) do
             if v:IsA("LocalScript") or v:IsA("ModuleScript") then table.insert(targets, v) end
         end
-        writefile(FILE_NAME, "== START DUMP (PLACE " .. game.PlaceId .. ") ==\n")
     end
 
     isRunning = true
+    btn.Text = "PAUSE"
     btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
 
     while isRunning and currentIdx <= #targets do
         local scr = targets[currentIdx]
-        btn.Text = "STOP [" .. currentIdx .. "]"
-
-        -- Descompilación
-        local success, source = pcall(function() return decompiler(scr) end)
-        local data = "\n\n-- PATH: " .. scr:GetFullName() .. "\n" .. (success and source or "-- [ERROR]")
+        status.Text = "Procesando: " .. currentIdx .. "/" .. #targets
         
-        table.insert(buffer, data)
-
-        -- Lógica de escritura por lotes
-        if #buffer >= batch_size or currentIdx == #targets then
-            pcall(function() appendfile(FILE_NAME, table.concat(buffer)) end)
-            table.clear(buffer)
-            task.wait(0.01) -- Respiro mínimo para el bus de datos
-        end
+        -- Ingeniería Inversa de Bytecode
+        local success, source = pcall(function() return decompiler(scr) end)
+        
+        local header = "\n\n" .. string.rep("-", 40) .. "\n"
+        header = header .. "PATH: " .. scr:GetFullName() .. "\n"
+        header = header .. string.rep("-", 40) .. "\n\n"
+        
+        local code = (success and source and #source > 0) and source or "-- [ERROR DE LECTURA]"
+        
+        -- Escribimos script por script para no saturar el buffer de Delta
+        SafeAppend(header .. code)
 
         currentIdx = currentIdx + 1
         
-        -- Si no hay pausa, el botón no se puede clickear (Yield)
-        if currentIdx % 5 == 0 then task.wait() end 
+        -- Respiro para el motor de UI
+        if currentIdx % 3 == 0 then 
+            task.wait(0.05) 
+        end
     end
 
     if currentIdx > #targets then
-        btn.Text = "FINISH"
-        btn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        btn.Text = "COMPLETADO"
+        btn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
         isRunning = false
     end
 end
 
--- [ EVENTO DEL BOTÓN ]
+-- [ LÓGICA DEL BOTÓN ]
 btn.MouseButton1Click:Connect(function()
     if isRunning then
         isRunning = false
         btn.Text = "PURGANDO..."
-        btn.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-        PurgeMemory()
-        btn.Text = "RESUME"
-        btn.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
+        btn.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+        collectgarbage("collect")
+        task.wait(0.5)
+        btn.Text = "REANUDAR"
+        btn.BackgroundColor3 = Color3.fromRGB(50, 100, 200)
+        status.Text = "Pausado en " .. currentIdx
     else
         task.spawn(StartProcess)
     end
 end)
 
-print("🎯 Omni-Dump V12 Cargado. Botón listo en pantalla.")
+print("✅ V13 Cargada. Si el juego se congela, presiona STOP de inmediato.")
