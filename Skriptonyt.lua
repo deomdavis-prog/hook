@@ -1,121 +1,122 @@
 --[[
     ╔══════════════════════════════════════════════════════════════╗
-    ║        OMNI-DUMP V13 - ZERO-ERROR (ULTRA REILIENT)           ║
-    ║   Fix: Manejo de errores de descompilación y Buffer TXT.     ║
-    ║   Control: Botón inteligente con auto-limpieza de caché.     ║
+    ║        OMNI-DUMP V15 - THE OMNI-REACTOR (FINAL)              ║
+    ║   Ingeniería: Aislamiento HTTP + Control de Flujo Manual.    ║
+    ║   Velocidad: Turbo-Asíncrono con Buffer de Seguridad.        ║
     ╚══════════════════════════════════════════════════════════════╝
 ]]
 
-local FILE_NAME = "FINAL_DEEP_DUMP_" .. game.PlaceId .. ".txt"
+local FILE_NAME = "OMNI_REACTOR_DUMP_" .. game.PlaceId .. ".txt"
 local decompiler = decompile or (delta and delta.decompile)
 
-if not decompiler then return warn("❌ Error: Decompiler no hallado.") end
+if not decompiler then return warn("❌ API de descompilación no disponible.") end
 
--- [ VARIABLES DE ESTADO ]
+-- [ VARIABLES MAESTRAS ]
 local isRunning = false
 local currentIdx = 1
 local targets = {}
+local batch_buffer = {}
 
--- [ UI DE CONTROL MEJORADA ]
+-- [ UI DE ALTA RESPUESTA ]
 local sg = Instance.new("ScreenGui", game:GetService("CoreGui"))
 local frame = Instance.new("Frame", sg)
 local btn = Instance.new("TextButton", frame)
 local status = Instance.new("TextLabel", frame)
 
-frame.Size = UDim2.new(0, 160, 0, 70)
-frame.Position = UDim2.new(0.5, -80, 0.1, 0)
-frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+frame.Size = UDim2.new(0, 180, 0, 80)
+frame.Position = UDim2.new(0.5, -90, 0.15, 0)
+frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 frame.BorderSizePixel = 2
 frame.Draggable = true
 frame.Active = true
 
-btn.Size = UDim2.new(1, -10, 0, 35)
+btn.Size = UDim2.new(1, -10, 0, 40)
 btn.Position = UDim2.new(0, 5, 0, 5)
-btn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
-btn.Text = "INICIAR DUMP"
+btn.BackgroundColor3 = Color3.fromRGB(150, 30, 30)
+btn.Text = "INICIAR REACTOR"
 btn.TextColor3 = Color3.new(1, 1, 1)
 btn.Font = Enum.Font.Code
 btn.TextSize = 14
 
-status.Size = UDim2.new(1, 0, 0, 20)
-status.Position = UDim2.new(0, 0, 1, -25)
+status.Size = UDim2.new(1, 0, 0, 25)
+status.Position = UDim2.new(0, 0, 1, -30)
 status.BackgroundTransparency = 1
-status.Text = "Esperando..."
-status.TextColor3 = Color3.new(0.8, 0.8, 0.8)
-status.Font = Enum.Font.SourceSans
-status.TextSize = 12
+status.Text = "IDLE - Listo"
+status.TextColor3 = Color3.new(0.7, 0.7, 0.7)
+status.Font = Enum.Font.SourceSansItalic
+status.TextSize = 13
 
--- [ ESCRITURA SEGURA A PRUEBA DE CRASH ]
-local function SafeAppend(content)
-    local success, err = pcall(function()
-        if not readfile(FILE_NAME) then
-            writefile(FILE_NAME, "-- DUMP INICIADO\n")
-        end
-        appendfile(FILE_NAME, tostring(content))
-    end)
-    if not success then
-        warn("⚠️ Error al escribir en archivo: " .. tostring(err))
+-- [ SISTEMA DE ESCRITURA Y PURGA ]
+local function FlushAndPurge()
+    if #batch_buffer > 0 then
+        local data = table.concat(batch_buffer)
+        pcall(function() appendfile(FILE_NAME, data) end)
+        table.clear(batch_buffer)
     end
+    collectgarbage("collect")
 end
 
--- [ MOTOR DE EXTRACCIÓN UNITARIO ]
-local function StartProcess()
+-- [ MOTOR DE INGENIERÍA ]
+local function ReactorProcess()
     if #targets == 0 then
-        status.Text = "Escaneando..."
+        status.Text = "Escaneando memoria..."
         for _, v in ipairs(game:GetDescendants()) do
             if v:IsA("LocalScript") or v:IsA("ModuleScript") then table.insert(targets, v) end
         end
+        writefile(FILE_NAME, "-- REACTOR START: " .. os.date("%X") .. "\n")
     end
 
     isRunning = true
-    btn.Text = "PAUSE"
-    btn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 
     while isRunning and currentIdx <= #targets do
-        local scr = targets[currentIdx]
-        status.Text = "Procesando: " .. currentIdx .. "/" .. #targets
+        local s = targets[currentIdx]
+        status.Text = "BATCH: " .. currentIdx .. "/" .. #targets
+        btn.Text = "STOP REACTOR"
+
+        -- Aislamiento de Error HTTP (InvalidUrl Bypass)
+        local success, source = pcall(function() 
+            return decompiler(s) 
+        end)
         
-        -- Ingeniería Inversa de Bytecode
-        local success, source = pcall(function() return decompiler(scr) end)
+        local header = "\n\n[" .. string.rep("-", 15) .. "]\nPATH: " .. s:GetFullName() .. "\n"
+        local code = (success and source and #source > 0) and source or "-- [!] SERVER ERROR (InvalidUrl/API Down)"
         
-        local header = "\n\n" .. string.rep("-", 40) .. "\n"
-        header = header .. "PATH: " .. scr:GetFullName() .. "\n"
-        header = header .. string.rep("-", 40) .. "\n\n"
-        
-        local code = (success and source and #source > 0) and source or "-- [ERROR DE LECTURA]"
-        
-        -- Escribimos script por script para no saturar el buffer de Delta
-        SafeAppend(header .. code)
+        table.insert(batch_buffer, header .. code)
+
+        -- Control de Lote (Rápido pero seguro)
+        if #batch_buffer >= 25 or currentIdx == #targets then
+            FlushAndPurge()
+            task.wait(0.1) -- Pausa necesaria para que el sistema de archivos no se bloquee
+        end
 
         currentIdx = currentIdx + 1
         
-        -- Respiro para el motor de UI
-        if currentIdx % 3 == 0 then 
-            task.wait(0.05) 
-        end
+        -- Cero tirones: devolvemos control al motor cada 3 scripts
+        if currentIdx % 3 == 0 then task.wait() end
     end
 
     if currentIdx > #targets then
-        btn.Text = "COMPLETADO"
-        btn.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+        btn.Text = "DUMP FINALIZADO"
+        btn.BackgroundColor3 = Color3.fromRGB(40, 180, 40)
         isRunning = false
     end
 end
 
--- [ LÓGICA DEL BOTÓN ]
+-- [ CONTROL DEL BOTÓN ]
 btn.MouseButton1Click:Connect(function()
     if isRunning then
         isRunning = false
-        btn.Text = "PURGANDO..."
+        btn.Text = "PAUSANDO..."
         btn.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
-        collectgarbage("collect")
+        FlushAndPurge()
         task.wait(0.5)
         btn.Text = "REANUDAR"
-        btn.BackgroundColor3 = Color3.fromRGB(50, 100, 200)
-        status.Text = "Pausado en " .. currentIdx
+        btn.BackgroundColor3 = Color3.fromRGB(40, 100, 200)
+        status.Text = "Pausado en script " .. currentIdx
     else
-        task.spawn(StartProcess)
+        task.spawn(ReactorProcess)
     end
 end)
 
-print("✅ V13 Cargada. Si el juego se congela, presiona STOP de inmediato.")
+print("🚀 Reactor V15 cargado. Botón listo.")
