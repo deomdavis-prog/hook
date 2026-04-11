@@ -1,89 +1,110 @@
 --[[
     ╔══════════════════════════════════════════════════════════════╗
-    ║        OMNI-DUMPER V3 (ULTIMATE ADAPTIVE EDITION)            ║
-    ║   Bypass de API, Recuperación Total y Prioridad Crítica      ║
+    ║        OMNI-DECOMPILER V6 - DEEP LOG (ULTRA-PERSISTENCE)     ║
+    ║   Objetivo: Extracción total de lógica a archivo .txt        ║
+    ║   Método: Escaneo de GC + Estructura + Append Directo        ║
     ╚══════════════════════════════════════════════════════════════╝
 ]]
 
--- [ 1. BUSCADOR DE API NATIVA ]
-local save_func = saveinstance or (delta and delta.saveinstance) or syn_save_instance or (fluxus and fluxus.save_instance)
+-- [ CONFIGURACIÓN ]
+local FILE_NAME = "TOTAL_LOG_" .. game.PlaceId .. ".txt"
+local decompiler = decompile or (delta and delta.decompile) or (fluxus and fluxus.decompile)
 
-if not save_func then
-    print("⚠️ API estándar no hallada. Intentando puente alternativo...")
-    -- Intento de recuperación si la función está oculta en el entorno global
-    for k, v in pairs(getfenv()) do
-        if k:lower():find("save") and k:lower():find("inst") then
-            save_func = v
-            print("✅ API recuperada bajo el nombre: " .. k)
-            break
+if not decompiler then
+    return warn("❌ [ERROR]: El motor de descompilación no está disponible en esta build de Delta.")
+end
+
+-- [ MOTOR DE ESCRITURA SEGURO ]
+local function SafeWrite(content)
+    pcall(function()
+        if not readfile(FILE_NAME) then
+            writefile(FILE_NAME, "=== INICIO DE VOLCADO TOTAL ===\n")
         end
-    end
-end
-
-if not save_func then
-    return warn("❌ [ERROR FATAL]: Delta ha deshabilitado 'saveinstance' en esta build. No se puede proceder sin el motor C++.")
-end
-
--- [ 2. CONFIGURACIÓN SIN LÍMITES ]
-local DumpConfig = {
-    FileName = "FULL_EXTRACT_" .. game.PlaceId .. "_" .. math.random(1000, 9999),
-    Decompile = true,
-    DecompileTimeout = 10000, -- Tiempo extremo
-    IsolatePlayers = false,   -- No aislar nada, copiar todo
-    SaveCacheProfile = false,
-    IgnoreDefaultProps = false,
-    -- Solo omitimos lo que causa cierre inmediato por falta de permisos de Roblox
-    IgnoreList = {"LogService", "Stats", "VoiceChatService", "VersionControlService"}
-}
-
--- [ 3. RECOLECCIÓN PROFUNDA DE NIL ]
-local function GetEverything()
-    local container = Instance.new("Folder")
-    container.Name = "CORE_DUMP_RECOVERY"
-    container.Parent = game:GetService("ReplicatedStorage")
-    
-    if getnilinstances then
-        print("🌀 Extrayendo instancias del Limbo (Nil)...")
-        for _, obj in ipairs(getnilinstances()) do
-            pcall(function()
-                if obj ~= game and not obj:IsDescendantOf(game) then
-                    obj:Clone().Parent = container
-                end
-            end)
-        end
-    end
-    return container
-end
-
--- [ 4. PROTOCOLO DE EJECUCIÓN ]
-local function Execute()
-    print("🔥 PREPARANDO VOLCADO TOTAL...")
-    local recovery = GetEverything()
-    
-    -- Ajuste de rendimiento para evitar que el OS mate a Delta
-    if setfpscap then setfpscap(10) end -- Baja los FPS para dedicar la CPU al Dump
-    
-    task.wait(1)
-    
-    local success, err = pcall(function()
-        save_func(DumpConfig)
+        appendfile(FILE_NAME, content)
     end)
-    
-    if success then
-        print("\n" .. string.rep("⭐", 10))
-        print("VOLCADO EXITOSO")
-        print("Archivo guardado en la carpeta de Delta")
-        print(string.rep("⭐", 10))
-    else
-        warn("❌ Error en el motor: " .. tostring(err))
-        print("Intentando volcado de emergencia (Sin Scripts)...")
-        DumpConfig.Decompile = false
-        pcall(function() save_func(DumpConfig) end)
-    end
-    
-    if setfpscap then setfpscap(60) end
-    pcall(function() recovery:Destroy() end)
 end
 
--- Iniciar proceso
-Execute()
+-- [ MOTOR DE EXTRACCIÓN ]
+local function ExtractSource(obj)
+    local header = "\n" .. string.rep("=", 60) .. "\n"
+    header = header .. "NOMBRE: " .. tostring(obj.Name) .. "\n"
+    header = header .. "RUTA: " .. obj:GetFullName() .. "\n"
+    header = header .. "CLASE: " .. obj.ClassName .. "\n"
+    header = header .. string.rep("=", 60) .. "\n"
+    
+    local success, result = pcall(function() return decompiler(obj) end)
+    
+    if success and result and #result > 0 then
+        return header .. result .. "\n"
+    else
+        return header .. "-- [ERROR]: No se pudo extraer código (Bytecode protegido o API deshabilitada).\n"
+    end
+end
+
+-- [ ESCANEO MAESTRO - MODO LENTO EXTREMO ]
+local function StartDeepScan()
+    print("🚀 Iniciando Minería Profunda... No toques nada.")
+    print("⏳ Modo ultra lento activado. Este proceso tomará mucho tiempo.")
+    SafeWrite("\nFECHA: " .. os.date("%X") .. " | PLACE ID: " .. game.PlaceId .. "\n")
+    
+    -- Pausa inicial de cortesía
+    task.wait(3)
+
+    local processed = 0
+    local targets = {}
+
+    -- 1. Captura de Scripts en el Árbol del Juego
+    for _, v in ipairs(game:GetDescendants()) do
+        if v:IsA("LocalScript") or v:IsA("ModuleScript") then
+            table.insert(targets, v)
+        end
+    end
+
+    -- 2. Captura de Scripts en Memoria Volátil (Garbage Collector)
+    if getgc then
+        for _, v in pairs(getgc()) do
+            if type(v) == "userdata" then
+                pcall(function()
+                    if typeof(v) == "Instance" and (v:IsA("LocalScript") or v:IsA("ModuleScript")) then
+                        -- Evitar duplicados
+                        local found = false
+                        for _, existing in ipairs(targets) do
+                            if existing == v then found = true break end
+                        end
+                        if not found then table.insert(targets, v) end
+                    end
+                end)
+            end
+        end
+    end
+
+    print("📜 Total de scripts identificados: " .. #targets)
+    task.wait(2)
+
+    for i, scr in ipairs(targets) do
+        print("🛠️ [" .. i .. "/" .. #targets .. "] Minando: " .. scr.Name)
+        
+        local data = ExtractSource(scr)
+        SafeWrite(data)
+        
+        processed = processed + 1
+        
+        -- ✅ Pausa larga después de CADA script (3 segundos)
+        task.wait(3)
+        
+        -- ✅ Pausa extra cada 5 scripts (5 segundos adicionales)
+        if i % 5 == 0 then
+            print("⏸️  Pausa de mantenimiento cada 5 scripts...")
+            task.wait(5)
+        end
+    end
+
+    -- Pausa final antes de mostrar el mensaje de éxito
+    task.wait(2)
+    print("🏁 PROCESO FINALIZADO. Total procesados: " .. processed)
+    print("📁 Archivo guardado como: " .. FILE_NAME)
+end
+
+-- Ejecución en hilo separado (con un pequeño retraso inicial)
+task.wait(2)
+task.spawn(StartDeepScan)
