@@ -1,7 +1,7 @@
 --[[
-    OMNI-DUMP V13 - ADAPTIVE EDITION
-    Auto-regula: batch, delay, respiro y modo escritura
-    según RAM disponible y velocidad del entorno.
+    OMNI-DUMP V14 - ZERO-LEAK EDITION
+    Fix crítico: libera referencias de targets después de usarlas.
+    Procesa en chunks para nunca tener 19k objetos en RAM.
 ]]
 
 -- [ DETECCIÓN DE ENTORNO ]
@@ -9,7 +9,6 @@ local ENV = {
     hasWritefile  = (writefile ~= nil),
     hasAppendfile = (appendfile ~= nil),
     hasGcinfo     = (gcinfo ~= nil),
-    hasDelta      = (delta ~= nil),
     decompiler    = decompile or (delta and delta.decompile),
 }
 
@@ -20,65 +19,55 @@ if not ENV.hasAppendfile and not ENV.hasWritefile then
     return warn("[OmniDump] Error: Sin API de escritura disponible.")
 end
 
--- [ CONFIGURACIÓN ADAPTATIVA BASE ]
--- Todos los valores se auto-ajustan durante el proceso.
+-- [ CONFIG ADAPTATIVA ]
 local CONFIG = {
-    FILE_NAME       = "DUMP_" .. game.PlaceId .. ".txt",
-
-    -- Escritura
-    BATCH_SIZE      = 10,     -- Se reduce si hay presión de RAM
-    BATCH_MIN       = 2,      -- Mínimo absoluto de batch
-    BATCH_MAX       = 30,     -- Máximo cuando hay RAM holgada
-
-    -- Delays
-    BASE_DELAY      = 0.05,   -- Se ajusta según velocidad de descompilación
-    DELAY_MIN       = 0.02,
-    DELAY_MAX       = 0.3,
-
-    -- Respiros
-    BREATHE_EVERY   = 500,    -- Se reduce si hay crash risk
-    BREATHE_MIN     = 100,
-    BREATHE_WAIT    = 1.0,    -- Se extiende si la RAM está alta
-
-    -- Muestreo adaptativo
-    SAMPLE_EVERY    = 50,     -- Cada N scripts re-evalúa el entorno
-    RAM_HIGH        = 180,    -- MB considerado presión alta (gcinfo retorna KB)
-    RAM_CRITICAL    = 280,    -- MB considerado crítico
+    FILE_NAME      = "DUMP_" .. game.PlaceId .. ".txt",
+    CHUNK_SIZE     = 200,   -- Cuántos scripts carga en RAM a la vez
+    BATCH_SIZE     = 5,     -- Scripts por flush (se adapta)
+    BATCH_MIN      = 2,
+    BATCH_MAX      = 15,
+    BASE_DELAY     = 0.05,
+    DELAY_MIN      = 0.02,
+    DELAY_MAX      = 0.25,
+    BREATHE_EVERY  = 100,
+    BREATHE_MIN    = 50,
+    BREATHE_WAIT   = 1.5,
+    SAMPLE_EVERY   = 25,
+    RAM_HIGH       = 150,
+    RAM_CRITICAL   = 250,
 }
 
--- [ MÉTRICAS EN TIEMPO REAL ]
+-- [ MÉTRICAS ]
 local metrics = {
-    ramSamples      = {},     -- Historial de RAM para tendencia
-    timeSamples     = {},     -- Historial de tiempo por script
-    lastRam         = 0,
-    lastDecompTime  = 0,
-    crashRisk       = 0,      -- 0.0 - 1.0
-    adaptLog        = {},     -- Log de ajustes realizados
+    ramSamples = {},
+    lastRam    = 0,
+    crashRisk  = 0,
 }
 
--- [ ESTADO GLOBAL ]
+-- [ ESTADO ]
 local state = {
-    running    = false,
-    idx        = 1,
-    targets    = {},
-    buffer     = {},
-    total      = 0,
-    errorCount = 0,
-    startTime  = 0,
-    lastBreathe = 0,
+    running      = false,
+    globalIdx    = 1,    -- Índice global (1 a total)
+    total        = 0,
+    allPaths     = {},   -- Solo rutas (strings), NO objetos Instance
+    buffer       = {},
+    errorCount   = 0,
+    startTime    = 0,
+    lastBreathe  = 0,
 }
 
--- [ WRITER SEGURO ]
+-- ══════════════════════════════════
+-- [ WRITER ]
+-- ══════════════════════════════════
+
 local function safeWrite(data, overwrite)
     if overwrite and ENV.hasWritefile then
         local ok = pcall(writefile, CONFIG.FILE_NAME, data)
-        if ok then return true end
+        if ok then return end
     end
     if ENV.hasAppendfile then
-        local ok = pcall(appendfile, CONFIG.FILE_NAME, data)
-        return ok
+        pcall(appendfile, CONFIG.FILE_NAME, data)
     end
-    return false
 end
 
 local function flushBuffer()
@@ -87,100 +76,82 @@ local function flushBuffer()
     table.clear(state.buffer)
 end
 
--- [ MUESTREO DE RAM ]
+-- ══════════════════════════════════
+-- [ RAM Y ADAPTACIÓN ]
+-- ══════════════════════════════════
+
 local function sampleRam()
     if not ENV.hasGcinfo then return 0 end
     local ok, val = pcall(gcinfo)
     if not ok then return metrics.lastRam end
-    -- gcinfo retorna KB en la mayoría de executors
     local mb = val / 1024
     metrics.lastRam = mb
     table.insert(metrics.ramSamples, mb)
-    if #metrics.ramSamples > 10 then
-        table.remove(metrics.ramSamples, 1)
-    end
+    if #metrics.ramSamples > 8 then table.remove(metrics.ramSamples, 1) end
     return mb
 end
 
--- Tendencia: positivo = RAM subiendo, negativo = bajando
 local function ramTrend()
     local s = metrics.ramSamples
     if #s < 3 then return 0 end
     return s[#s] - s[#s - 2]
 end
 
--- [ MOTOR ADAPTATIVO ]
-local function adapt(idx)
-    local ram = sampleRam()
+local function adapt()
+    local ram   = sampleRam()
     local trend = ramTrend()
+    local risk  = 0
 
-    -- Calcular crash risk (0.0 - 1.0)
-    local risk = 0
     if ram > CONFIG.RAM_HIGH then
         risk = (ram - CONFIG.RAM_HIGH) / (CONFIG.RAM_CRITICAL - CONFIG.RAM_HIGH)
         risk = math.min(risk, 1.0)
     end
-    if trend > 5 then risk = math.min(risk + 0.2, 1.0) end  -- RAM subiendo rápido
+    if trend > 4 then risk = math.min(risk + 0.25, 1.0) end
     metrics.crashRisk = risk
 
-    -- [ AJUSTE DE BATCH_SIZE ]
-    if risk > 0.7 then
+    -- Batch
+    if risk > 0.6 then
         CONFIG.BATCH_SIZE = CONFIG.BATCH_MIN
-    elseif risk > 0.4 then
-        CONFIG.BATCH_SIZE = math.max(CONFIG.BATCH_MIN, math.floor(CONFIG.BATCH_SIZE * 0.7))
-    elseif risk < 0.1 and trend < 1 then
+    elseif risk > 0.3 then
+        CONFIG.BATCH_SIZE = math.max(CONFIG.BATCH_MIN, CONFIG.BATCH_SIZE - 1)
+    elseif risk < 0.1 then
         CONFIG.BATCH_SIZE = math.min(CONFIG.BATCH_MAX, CONFIG.BATCH_SIZE + 1)
     end
 
-    -- [ AJUSTE DE BASE_DELAY ]
-    if risk > 0.7 then
+    -- Delay
+    if risk > 0.6 then
         CONFIG.BASE_DELAY = CONFIG.DELAY_MAX
-    elseif risk > 0.4 then
-        CONFIG.BASE_DELAY = math.min(CONFIG.DELAY_MAX,
-            CONFIG.BASE_DELAY + 0.02)
+    elseif risk > 0.3 then
+        CONFIG.BASE_DELAY = math.min(CONFIG.DELAY_MAX, CONFIG.BASE_DELAY + 0.015)
     elseif risk < 0.1 then
-        CONFIG.BASE_DELAY = math.max(CONFIG.DELAY_MIN,
-            CONFIG.BASE_DELAY - 0.005)
+        CONFIG.BASE_DELAY = math.max(CONFIG.DELAY_MIN, CONFIG.BASE_DELAY - 0.005)
     end
 
-    -- [ AJUSTE DE BREATHE_EVERY ]
+    -- Breathe
     if risk > 0.6 then
         CONFIG.BREATHE_EVERY = CONFIG.BREATHE_MIN
-        CONFIG.BREATHE_WAIT  = 3.0
+        CONFIG.BREATHE_WAIT  = 3.5
     elseif risk > 0.3 then
-        CONFIG.BREATHE_EVERY = math.max(CONFIG.BREATHE_MIN,
-            math.floor(CONFIG.BREATHE_EVERY * 0.8))
+        CONFIG.BREATHE_EVERY = math.max(CONFIG.BREATHE_MIN, CONFIG.BREATHE_EVERY - 20)
         CONFIG.BREATHE_WAIT  = 2.0
     elseif risk < 0.1 then
-        CONFIG.BREATHE_EVERY = math.min(500,
-            CONFIG.BREATHE_EVERY + 10)
-        CONFIG.BREATHE_WAIT  = math.max(0.5, CONFIG.BREATHE_WAIT - 0.1)
+        CONFIG.BREATHE_EVERY = math.min(200, CONFIG.BREATHE_EVERY + 5)
+        CONFIG.BREATHE_WAIT  = math.max(0.8, CONFIG.BREATHE_WAIT - 0.1)
     end
 
-    -- Log del ajuste (solo si cambió algo notable)
-    if risk > 0.4 then
-        local msg = string.format(
-            "[Adapt #%d] RAM:%.0fMB Risk:%.0f%% Batch:%d Delay:%.2f Breathe:%d",
-            idx, ram, risk * 100,
-            CONFIG.BATCH_SIZE, CONFIG.BASE_DELAY, CONFIG.BREATHE_EVERY
-        )
-        table.insert(metrics.adaptLog, msg)
-        print(msg)
+    -- Chunk size
+    if risk > 0.6 then
+        CONFIG.CHUNK_SIZE = 50
+    elseif risk > 0.3 then
+        CONFIG.CHUNK_SIZE = 100
+    else
+        CONFIG.CHUNK_SIZE = 200
     end
 end
 
--- [ RESPIRO ADAPTATIVO ]
-local function breathe(idx)
-    local shouldBreathe = (idx - state.lastBreathe) >= CONFIG.BREATHE_EVERY
-    if not shouldBreathe then return end
-    state.lastBreathe = idx
-    flushBuffer()
-    task.wait(CONFIG.BREATHE_WAIT)
-end
-
--- ══════════════════════════════════════════
--- [ INTERFAZ ]
--- ══════════════════════════════════════════
+-- ══════════════════════════════════
+-- [ UI ]
+-- ══════════════════════════════════
 
 local CoreGui = game:GetService("CoreGui")
 local prev = CoreGui:FindFirstChild("OmniDumpUI")
@@ -191,58 +162,57 @@ sg.Name         = "OmniDumpUI"
 sg.ResetOnSpawn = false
 sg.Parent       = CoreGui
 
--- Frame principal
 local frame = Instance.new("Frame", sg)
-frame.Size             = UDim2.new(0, 180, 0, 100)
-frame.Position         = UDim2.new(0.5, -90, 0.04, 0)
-frame.BackgroundColor3 = Color3.fromRGB(14, 14, 16)
+frame.Size             = UDim2.new(0, 185, 0, 105)
+frame.Position         = UDim2.new(0.5, -92, 0.04, 0)
+frame.BackgroundColor3 = Color3.fromRGB(12, 12, 14)
 frame.BorderSizePixel  = 0
 frame.Active           = true
 frame.Draggable        = true
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
 
--- Label título
-local lblTitle = Instance.new("TextLabel", frame)
-lblTitle.Size               = UDim2.new(1, 0, 0, 18)
-lblTitle.Position           = UDim2.new(0, 0, 0, 5)
-lblTitle.BackgroundTransparency = 1
-lblTitle.Text               = "OMNI-DUMP v13"
-lblTitle.TextColor3         = Color3.fromRGB(140, 140, 155)
-lblTitle.Font               = Enum.Font.SourceSansBold
-lblTitle.TextSize           = 11
+local function mkLabel(parent, pos, size, txt, color, fontSize, align)
+    local l = Instance.new("TextLabel", parent)
+    l.Size               = size
+    l.Position           = pos
+    l.BackgroundTransparency = 1
+    l.Text               = txt
+    l.TextColor3         = color
+    l.Font               = Enum.Font.SourceSans
+    l.TextSize           = fontSize or 11
+    l.TextXAlignment     = align or Enum.TextXAlignment.Center
+    return l
+end
 
--- Label estado (RAM / progreso)
-local lblStatus = Instance.new("TextLabel", frame)
-lblStatus.Size               = UDim2.new(1, -16, 0, 16)
-lblStatus.Position           = UDim2.new(0, 8, 0, 24)
-lblStatus.BackgroundTransparency = 1
-lblStatus.Text               = "Listo"
-lblStatus.TextColor3         = Color3.fromRGB(100, 200, 140)
-lblStatus.Font               = Enum.Font.SourceSans
-lblStatus.TextSize           = 11
-lblStatus.TextXAlignment     = Enum.TextXAlignment.Left
+mkLabel(frame,
+    UDim2.new(0,0,0,4), UDim2.new(1,0,0,16),
+    "OMNI-DUMP v14  ZERO-LEAK",
+    Color3.fromRGB(120,120,135), 11)
 
--- Label riesgo
-local lblRisk = Instance.new("TextLabel", frame)
-lblRisk.Size               = UDim2.new(1, -16, 0, 14)
-lblRisk.Position           = UDim2.new(0, 8, 0, 40)
-lblRisk.BackgroundTransparency = 1
-lblRisk.Text               = ""
-lblRisk.TextColor3         = Color3.fromRGB(200, 140, 60)
-lblRisk.Font               = Enum.Font.SourceSans
-lblRisk.TextSize           = 10
-lblRisk.TextXAlignment     = Enum.TextXAlignment.Left
+local lblProgress = mkLabel(frame,
+    UDim2.new(0,8,0,22), UDim2.new(1,-16,0,15),
+    "Listo", Color3.fromRGB(90,190,130), 11,
+    Enum.TextXAlignment.Left)
 
--- Botón principal
+local lblRam = mkLabel(frame,
+    UDim2.new(0,8,0,38), UDim2.new(1,-16,0,14),
+    "", Color3.fromRGB(160,160,80), 10,
+    Enum.TextXAlignment.Left)
+
+local lblAdapt = mkLabel(frame,
+    UDim2.new(0,8,0,52), UDim2.new(1,-16,0,12),
+    "", Color3.fromRGB(100,140,200), 10,
+    Enum.TextXAlignment.Left)
+
 local btn = Instance.new("TextButton", frame)
-btn.Size               = UDim2.new(1, -16, 0, 36)
-btn.Position           = UDim2.new(0, 8, 0, 57)
-btn.BackgroundColor3   = Color3.fromRGB(210, 55, 55)
-btn.Text               = "INICIAR DUMP"
-btn.TextColor3         = Color3.new(1, 1, 1)
-btn.Font               = Enum.Font.SourceSansBold
-btn.TextSize           = 15
-btn.BorderSizePixel    = 0
+btn.Size             = UDim2.new(1,-16,0,34)
+btn.Position         = UDim2.new(0,8,0,66)
+btn.BackgroundColor3 = Color3.fromRGB(200,50,50)
+btn.Text             = "INICIAR DUMP"
+btn.TextColor3       = Color3.new(1,1,1)
+btn.Font             = Enum.Font.SourceSansBold
+btn.TextSize         = 15
+btn.BorderSizePixel  = 0
 Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
 local function setBtn(text, r, g, b)
@@ -250,162 +220,210 @@ local function setBtn(text, r, g, b)
     btn.BackgroundColor3 = Color3.fromRGB(r, g, b)
 end
 
-local function setStatus(text, r, g, b)
-    lblStatus.Text      = text
-    lblStatus.TextColor3 = Color3.fromRGB(r or 100, g or 200, b or 140)
-end
+local function updateUI(idx, total, risk, ram)
+    local pct = math.floor((idx / total) * 100)
+    lblProgress.Text = string.format("%d/%d  (%d%%)", idx, total, pct)
 
-local function setRisk(risk, ram)
     if risk > 0.6 then
-        lblRisk.Text       = string.format("⚠ RAM %.0fMB  RIESGO ALTO", ram)
-        lblRisk.TextColor3 = Color3.fromRGB(220, 80, 80)
+        lblRam.Text      = string.format("RAM %.0f MB  ⚠ CRITICO", ram)
+        lblRam.TextColor3 = Color3.fromRGB(220, 70, 70)
     elseif risk > 0.3 then
-        lblRisk.Text       = string.format("~ RAM %.0fMB  moderado", ram)
-        lblRisk.TextColor3 = Color3.fromRGB(220, 160, 60)
+        lblRam.Text      = string.format("RAM %.0f MB  ~ moderado", ram)
+        lblRam.TextColor3 = Color3.fromRGB(220, 160, 60)
     else
-        lblRisk.Text       = string.format("RAM %.0fMB  estable", ram)
-        lblRisk.TextColor3 = Color3.fromRGB(80, 180, 120)
+        lblRam.Text      = string.format("RAM %.0f MB  estable", ram)
+        lblRam.TextColor3 = Color3.fromRGB(80, 190, 120)
     end
+
+    lblAdapt.Text = string.format(
+        "batch:%d  delay:%.2f  breathe:%d",
+        CONFIG.BATCH_SIZE, CONFIG.BASE_DELAY, CONFIG.BREATHE_EVERY)
 end
 
--- ══════════════════════════════════════════
--- [ RECOPILACIÓN DE OBJETIVOS ]
--- ══════════════════════════════════════════
+-- ══════════════════════════════════════════════════
+-- [ CARGA DE PATHS (solo strings, NO Instances) ]
+-- Guarda solo el path string de cada script.
+-- Los objetos Instance se resuelven al momento de usar.
+-- ══════════════════════════════════════════════════
 
-local function collectTargets()
-    if #state.targets > 0 then return end
+local function buildPathIndex()
+    if #state.allPaths > 0 then return end
+    local count = 0
     for _, v in ipairs(game:GetDescendants()) do
         if v:IsA("LocalScript") or v:IsA("ModuleScript") then
-            table.insert(state.targets, v)
+            table.insert(state.allPaths, v:GetFullName())
+            count += 1
         end
     end
-    state.total = #state.targets
+    state.total = count
     local header = string.format(
-        "-- OMNI-DUMP v13 ADAPTIVE | PlaceId: %d | Scripts: %d | tick: %d\n\n",
-        game.PlaceId, state.total, math.floor(tick())
+        "-- OMNI-DUMP v14 | PlaceId: %d | Scripts: %d | tick: %d\n\n",
+        game.PlaceId, count, math.floor(tick())
     )
     safeWrite(header, true)
-    print(string.format("[OmniDump] %d scripts encontrados.", state.total))
+    print(string.format("[OmniDump] %d scripts indexados (solo paths).", count))
 end
 
--- ══════════════════════════════════════════
+-- Resuelve un path de vuelta a su Instance en tiempo real
+local function resolvePath(fullName)
+    local parts = string.split(fullName, ".")
+    local obj = game
+    for i = 2, #parts do  -- saltar "game"
+        local ok, child = pcall(function()
+            return obj:FindFirstChild(parts[i])
+        end)
+        if not ok or not child then return nil end
+        obj = child
+    end
+    return obj
+end
+
+-- ══════════════════════════════════════════════════
+-- [ CARGA DE CHUNK: N objetos a la vez ]
+-- ══════════════════════════════════════════════════
+
+local function loadChunk(fromIdx, toIdx)
+    local chunk = {}
+    for i = fromIdx, toIdx do
+        if state.allPaths[i] then
+            local obj = resolvePath(state.allPaths[i])
+            chunk[i] = obj  -- puede ser nil si fue destruido
+        end
+    end
+    return chunk
+end
+
+-- ══════════════════════════════════════════════════
 -- [ MOTOR PRINCIPAL ]
--- ══════════════════════════════════════════
+-- ══════════════════════════════════════════════════
 
 local function StartProcess()
-    state.running    = true
-    state.startTime  = tick()
-    state.errorCount = 0
-    state.lastBreathe = state.idx
+    state.running     = true
+    state.startTime   = tick()
+    state.errorCount  = 0
+    state.lastBreathe = state.globalIdx
 
-    collectTargets()
+    buildPathIndex()
 
     if state.total == 0 then
         setBtn("SIN SCRIPTS", 100, 100, 100)
-        setStatus("No se hallaron scripts.")
+        lblProgress.Text = "No se hallaron scripts."
         state.running = false
         return
     end
 
-    print("[OmniDump] Iniciando desde script #" .. state.idx)
+    print("[OmniDump] Iniciando desde #" .. state.globalIdx)
 
-    while state.running and state.idx <= state.total do
-        local scr = state.targets[state.idx]
+    while state.running and state.globalIdx <= state.total do
 
-        -- Medir tiempo de descompilación
-        local t0 = tick()
-        local ok, source = pcall(ENV.decompiler, scr)
-        metrics.lastDecompTime = tick() - t0
+        -- Cargar chunk actual
+        local chunkEnd = math.min(
+            state.globalIdx + CONFIG.CHUNK_SIZE - 1,
+            state.total
+        )
+        local chunk = loadChunk(state.globalIdx, chunkEnd)
 
-        -- Construir entrada
-        local entry
-        if ok and type(source) == "string" and #source > 0 then
-            entry = "\n\n-- [OK] " .. scr:GetFullName() .. "\n" .. source
-        else
-            state.errorCount += 1
-            local reason = (type(source) == "string" and source) or "desconocido"
-            entry = "\n\n-- [ERR] " .. scr:GetFullName() .. " | " .. reason
+        -- Procesar chunk
+        for i = state.globalIdx, chunkEnd do
+            if not state.running then break end
+
+            local scr = chunk[i]
+            chunk[i]  = nil  -- ← libera referencia inmediatamente tras tomar
+
+            local entry
+            if scr then
+                local ok, source = pcall(ENV.decompiler, scr)
+                scr = nil  -- ← libera referencia al objeto Roblox
+
+                if ok and type(source) == "string" and #source > 0 then
+                    entry = "\n\n-- [OK] " .. state.allPaths[i] .. "\n" .. source
+                else
+                    state.errorCount += 1
+                    local reason = (type(source) == "string" and source) or "error"
+                    entry = "\n\n-- [ERR] " .. state.allPaths[i] .. " | " .. reason
+                end
+                source = nil  -- ← libera el string grande
+            else
+                -- Script destruido/no encontrado
+                entry = "\n\n-- [GONE] " .. (state.allPaths[i] or "?")
+            end
+
+            table.insert(state.buffer, entry)
+            entry = nil
+
+            -- Flush por batch
+            local isFinal = i == state.total
+            if #state.buffer >= CONFIG.BATCH_SIZE or isFinal then
+                flushBuffer()
+            end
+
+            -- Adaptación periódica
+            if i % CONFIG.SAMPLE_EVERY == 0 then
+                adapt()
+                updateUI(i, state.total, metrics.crashRisk, metrics.lastRam)
+                setBtn("STOP " .. math.floor((i/state.total)*100) .. "%", 190, 45, 45)
+            end
+
+            -- Respiro adaptativo
+            if (i - state.lastBreathe) >= CONFIG.BREATHE_EVERY then
+                state.lastBreathe = i
+                flushBuffer()
+                setBtn("RESPIRANDO...", 70, 70, 170)
+                task.wait(CONFIG.BREATHE_WAIT)
+                setBtn("STOP " .. math.floor((i/state.total)*100) .. "%", 190, 45, 45)
+            end
+
+            state.globalIdx = i + 1
+            task.wait(CONFIG.BASE_DELAY)
         end
-        source = nil  -- Libera referencia grande inmediatamente
 
-        table.insert(state.buffer, entry)
-        entry = nil
-
-        -- Flush adaptativo
-        local isFinal = state.idx == state.total
-        if #state.buffer >= CONFIG.BATCH_SIZE or isFinal then
-            flushBuffer()
-        end
-
-        -- Actualizar UI cada UPDATE_EVERY scripts
-        if state.idx % 10 == 0 or isFinal then
-            local pct = math.floor((state.idx / state.total) * 100)
-            setBtn("STOP  " .. pct .. "%", 200, 50, 50)
-            setStatus(state.idx .. "/" .. state.total .. "  batch:" .. CONFIG.BATCH_SIZE)
-            setRisk(metrics.crashRisk, metrics.lastRam)
-        end
-
-        -- Re-evaluar entorno cada SAMPLE_EVERY scripts
-        if state.idx % CONFIG.SAMPLE_EVERY == 0 then
-            adapt(state.idx)
-        end
-
-        -- Respiro adaptativo
-        breathe(state.idx)
-
-        state.idx += 1
-        task.wait(CONFIG.BASE_DELAY)
+        -- Libera el chunk completo de RAM antes del siguiente
+        chunk = nil
+        flushBuffer()
+        task.wait(0.1)  -- micro-pausa entre chunks
     end
 
-    -- Resultado final
-    if state.idx > state.total then
+    -- Final
+    if state.globalIdx > state.total then
         local elapsed = math.floor(tick() - state.startTime)
-        local summary = string.format(
+        print(string.format(
             "[OmniDump] Completado: %d scripts en %ds. Errores: %d.",
             state.total, elapsed, state.errorCount
-        )
-        print(summary)
-
-        -- Log de adaptaciones al archivo
-        if #metrics.adaptLog > 0 then
-            local logHeader = "\n\n-- === LOG ADAPTATIVO ===\n"
-            safeWrite(logHeader .. table.concat(metrics.adaptLog, "\n"), false)
-        end
-
-        setBtn("COMPLETADO", 40, 180, 80)
-        setStatus("Listo en " .. elapsed .. "s  Errores:" .. state.errorCount, 40, 180, 80)
-        lblRisk.Text = ""
+        ))
+        setBtn("COMPLETADO", 35, 175, 75)
+        lblProgress.Text = string.format(
+            "Listo: %d scripts en %ds", state.total, elapsed)
+        lblRam.Text  = "Errores: " .. state.errorCount
+        lblAdapt.Text = ""
         state.running = false
     end
 end
 
--- ══════════════════════════════════════════
+-- ══════════════════════════════════
 -- [ PURGA ]
--- ══════════════════════════════════════════
+-- ══════════════════════════════════
 
 local function PurgeSystem()
-    setBtn("LIMPIANDO...", 255, 140, 0)
-    setStatus("Purgando...", 255, 140, 0)
+    setBtn("LIMPIANDO...", 240, 130, 0)
+    lblProgress.Text = "Purgando..."
     flushBuffer()
     table.clear(state.buffer)
     table.clear(metrics.ramSamples)
-    table.clear(metrics.timeSamples)
     task.wait(0.3)
-    setStatus("Memoria liberada.", 100, 200, 140)
+    lblProgress.Text = "Pausado en #" .. state.globalIdx
     print("[OmniDump] Purga completa.")
 end
 
--- ══════════════════════════════════════════
+-- ══════════════════════════════════
 -- [ BOTÓN ]
--- ══════════════════════════════════════════
+-- ══════════════════════════════════
 
 btn.MouseButton1Click:Connect(function()
     if state.running then
         state.running = false
         task.spawn(function()
             PurgeSystem()
-            setBtn("REANUDAR", 50, 140, 50)
-            setStatus("Pausado en #" .. state.idx, 160, 160, 80)
+            setBtn("REANUDAR", 45, 130, 45)
         end)
     else
         task.spawn(StartProcess)
