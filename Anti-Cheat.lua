@@ -1,20 +1,15 @@
--- Script de Automatización de Cajero para Work at a Pizza Place (Roblox)
--- Optimizado para Delta Executor (Móvil)
+-- [[ AUTO CAJERO OPTIMIZADO - WORK AT A PIZZA PLACE ]]
+-- Basado en datos reales interceptados.
+-- Optimizado para Delta Executor (Móvil).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local VirtualUser = game:GetService("VirtualUser")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
+local isActive = true -- Cambiar a false si quieres que empiece apagado
 
-local isActive = false
-local TOGGLE_KEY = Enum.KeyCode.P -- Tecla para activar/desactivar el script
-
--- Función para enviar notificaciones al usuario
+-- Función para enviar notificaciones
 local function Notify(title, text)
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = title,
@@ -23,115 +18,92 @@ local function Notify(title, text)
     })
 end
 
--- Función para interactuar con el cliente (tomar orden y cobrar)
-local function HandleCustomer(customer)
-    if not customer or not customer:FindFirstChild("Head") then return end
-
-    local dialog = customer.Head:FindFirstChild("Dialog")
-    local simpleDialogBillboard = customer.Head:FindFirstChild("SimpleDialogBillboard")
-
-    if dialog and simpleDialogBillboard and simpleDialogBillboard.Enabled then
-        local correctChoice = dialog:FindFirstChild("Correct")
-        if correctChoice then
-            -- Simular clic en la opción de diálogo correcta
-            -- Esto puede variar dependiendo de cómo el juego maneje la interacción del diálogo.
-            -- Algunos juegos usan RemoteEvents directamente, otros esperan una interacción UI.
-            -- Intentaremos simular un clic en el botón de diálogo si existe.
-            local clickableBubble = simpleDialogBillboard:FindFirstChild("ClickableBubble")
-            if clickableBubble and clickableBubble:IsA("ImageLabel") then
-                -- Si hay un botón visual, intentamos simular un clic en él.
-                -- Esto es una aproximación y puede requerir ajustes.
-                VirtualUser:CaptureController()
-                VirtualUser:ClickButton2(Vector2.new(0,0)) -- Clic en el centro de la pantalla, asumiendo que el botón está centrado o es el único interactuable.
-                task.wait(0.1)
-                VirtualUser:ReleaseController()
+-- Función principal para atender al bot
+local function AtenderBot(bot, registerName)
+    if not bot or not bot:FindFirstChild("Head") then return end
+    
+    local head = bot.Head
+    local dialogRemote = ReplicatedStorage:FindFirstChild("Dialog")
+    local playerActionRemote = ReplicatedStorage:FindFirstChild("PlayerAction")
+    
+    -- Paso 1: Hacer clic en la burbuja del bot
+    if dialogRemote and playerActionRemote then
+        dialogRemote:FireServer("ClickedBubble", head)
+        playerActionRemote:FireServer("ClickedBubble", true)
+        task.wait(0.2) -- Pequeña espera para simular reacción humana
+        
+        -- Paso 2: Seleccionar la respuesta correcta
+        dialogRemote:FireServer("ResponseSelected", "Correct", head)
+        task.wait(0.2)
+        
+        -- Paso 3: Enviar la orden final al servidor
+        -- El log muestra un RemoteEvent sin nombre o con nombre vacío, 
+        -- esto suele ser un RemoteEvent dentro de una carpeta específica.
+        -- Buscaremos el RemoteEvent que maneja las órdenes.
+        local orderRemote = ReplicatedStorage:FindFirstChild("OrderRemote") or ReplicatedStorage:FindFirstChild("GiveOrder")
+        
+        -- Si no encontramos uno con nombre, buscaremos por estructura
+        if not orderRemote then
+            for _, v in pairs(ReplicatedStorage:GetChildren()) do
+                if v:IsA("RemoteEvent") and v.Name == "" then
+                    orderRemote = v
+                    break
+                end
             end
+        end
 
-            -- Intentar disparar el RemoteEvent si se conoce su nombre
-            -- Basado en la investigación, 
-            -- scripts de terceros a menudo usan un RemoteEvent para "tomar" la orden.
-            -- Un nombre común podría ser "OrderRemote" o "CashierRemote".
-            -- Si el juego usa un RemoteEvent específico para el cajero, se debería llamar aquí.
-            -- Por ahora, asumiremos que la interacción con el diálogo es suficiente o que el juego lo maneja automáticamente.
+        if orderRemote then
+            -- Detectar qué orden quiere el bot (esto se extrae del DialogChoice del bot)
+            local orderType = "CheesePizza" -- Valor por defecto
+            local dialog = head:FindFirstChild("Dialog")
+            if dialog and dialog:FindFirstChild("Correct") then
+                local response = dialog.Correct.ResponseDialog
+                if response:find("pepperoni") then orderType = "PepperoniPizza"
+                elseif response:find("sausage") then orderType = "SausagePizza"
+                elseif response:find("dew") or response:find("mountain") then orderType = "MountainDew"
+                end
+            end
             
-            -- Buscar un RemoteEvent para el cajero si existe
-            local cashierRemote = ReplicatedStorage:FindFirstChild("CashierRemote") or ReplicatedStorage:FindFirstChild("OrderRemote")
-            if cashierRemote and cashierRemote:IsA("RemoteEvent") then
-                -- Intentar disparar el RemoteEvent con el cliente como argumento, si es necesario.
-                -- La forma exacta de los argumentos puede variar.
-                pcall(function() cashierRemote:FireServer(customer) end)
-            end
-
-            -- También, el script de TrixAde mencionaba `UIEvents.ListItemPressed:Fire(a3,a4,a5,a6)`
-            -- Esto sugiere que hay un evento local que se dispara cuando se selecciona un ítem.
-            -- Si el juego usa un sistema de UI para la orden, podríamos necesitar simular esa interacción.
-            local UIEvents = player.PlayerGui:FindFirstChild("UIEvents")
-            if UIEvents and UIEvents:FindFirstChild("ListItemPressed") then
-                -- Esto es más complejo ya que requiere los argumentos correctos (a3, a4, a5, a6).
-                -- Sin una inspección directa del juego, es difícil saber qué valores pasar.
-                -- Por ahora, lo dejaremos como un comentario y nos centraremos en RemoteEvents o interacción de diálogo.
-                -- UIEvents.ListItemPressed:Fire(customer, orderDetails, etc.)
-            end
+            -- Enviar la orden (Template, Tipo de Pizza, Registradora)
+            orderRemote:FireServer(bot, orderType, registerName)
         end
     end
 end
 
--- Bucle principal de automatización
+-- Bucle de escaneo de bots en las registradoras
 task.spawn(function()
+    Notify("Auto Cajero Cargado", "Buscando bots en las cajas...")
+    
     while true do
-        task.wait(0.5) -- Esperar un poco para evitar sobrecargar el servidor
-
+        task.wait(0.5)
         if isActive then
-            -- Buscar clientes en el área del cajero
-            local cashierArea = workspace:FindFirstChild("CashierArea") -- Asumiendo que existe un modelo/parte llamada CashierArea
-            if cashierArea then
-                for _, child in pairs(cashierArea:GetChildren()) do
-                    if child:IsA("Model") and child:FindFirstChild("Humanoid") and child.Name ~= player.Name then
-                        -- Encontrado un bot/cliente
-                        HandleCustomer(child)
-                    end
-                end
-            else
-                -- Si no hay un CashierArea definido, buscar clientes cerca del jugador
-                for _, p in pairs(Players:GetPlayers()) do
-                    if p ~= player and p.Character and p.Character:FindFirstChild("Humanoid") then
-                        local dist = (rootPart.Position - p.Character.HumanoidRootPart.Position).Magnitude
-                        if dist < 15 then -- Clientes a 15 studs de distancia
-                            HandleCustomer(p.Character)
+            -- Escanear las 3 registradoras principales
+            for i = 1, 3 do
+                local registerName = "Register" .. i
+                -- Buscamos bots cerca de las registradoras en el Workspace
+                for _, obj in pairs(Workspace:GetChildren()) do
+                    if obj:IsA("Model") and obj.Name:find("Customer") then
+                        local root = obj:FindFirstChild("HumanoidRootPart")
+                        -- Si el bot está cerca de una registradora (ajustar posición si es necesario)
+                        -- En este juego los bots suelen tener un atributo o estar en una carpeta
+                        if root then
+                            -- Verificamos si el bot tiene la burbuja activa (SimpleDialogBillboard)
+                            local head = obj:FindFirstChild("Head")
+                            if head and head:FindFirstChild("SimpleDialogBillboard") and head.SimpleDialogBillboard.Enabled then
+                                AtenderBot(obj, registerName)
+                                task.wait(1) -- Pausa entre bots
+                            end
                         end
                     end
-                end
-            end
-
-            -- Lógica para cobrar (si es un proceso separado)
-            -- En muchos juegos, tomar la orden y cobrar se maneja en la misma interacción.
-            -- Si hay un botón de "Cash Out" o similar, se necesitaría simular un clic.
-            local pg = player.PlayerGui
-            if pg:FindFirstChild("GuiTop") and pg.GuiTop:FindFirstChild("Paycheck") then
-                local btn = pg.GuiTop.Paycheck:FindFirstChild("CashOut")
-                if btn and btn.Visible then
-                    -- Simular clic en el botón de cobrar
-                    pcall(function()
-                        if btn.MouseButton1Click then
-                            btn.MouseButton1Click:Fire()
-                        end
-                    end)
                 end
             end
         end
     end
 end)
 
--- Manejo de la tecla para activar/desactivar
-UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
-    if not gameProcessedEvent and input.KeyCode == TOGGLE_KEY then
-        isActive = not isActive
-        if isActive then
-            Notify("✅ Auto Cajero Activado", "El script está atendiendo a los bots.")
-        else
-            Notify("🛑 Auto Cajero Desactivado", "El script está en pausa.")
-        end
-    end
+-- Anti-AFK integrado para que no te saquen del juego
+local VirtualUser = game:GetService("VirtualUser")
+player.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
 end)
-
-Notify("Script de Auto Cajero Cargado", "Presiona 'P' para activar/desactivar.")
